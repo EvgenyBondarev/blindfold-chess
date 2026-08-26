@@ -1,0 +1,445 @@
+'use strict';
+
+// ── GET_STATE (runs in MAIN world via executeScript) ─────────────────────────
+function getPageState() {
+  // ── Lichess (chessground) ──────────────────────────────────────────────────
+  var cgBoard = document.querySelector('cg-board');
+  if (cgBoard) {
+    var cgRect = cgBoard.getBoundingClientRect();
+    var sq = cgRect.width / 8;
+    // clientWidth matches what chessground uses internally for transforms; prefer it
+    var sqCss = (cgBoard.clientWidth / 8) || sq;
+    if (!sqCss) return { pieces: {}, orientation: 'white', count: 0, site: 'lichess' };
+    if (!sq) sq = sqCss;
+
+    // ── Orientation detection (3 methods) ─────────────────────────────────────
+    var oriented = 'white';
+    // Method 1: walk parent elements for an orientation class or data attribute
+    var scanEl = cgBoard.parentElement;
+    while (scanEl && scanEl !== document.body) {
+      if (/\borientation-black\b/.test(scanEl.className || '') ||
+          scanEl.getAttribute('data-orientation') === 'black') { oriented = 'black'; break; }
+      scanEl = scanEl.parentElement;
+    }
+    // Method 2: rank coord labels — find '1' and check if it's visually at top or bottom
+    if (oriented === 'white') {
+      var ranksEl = document.querySelector('coords.ranks');
+      if (ranksEl) {
+        var coord1 = Array.from(ranksEl.querySelectorAll('coord')).find(function(c) {
+          return c.textContent.trim() === '1';
+        });
+        if (coord1) {
+          var r1 = coord1.getBoundingClientRect();
+          // If rank '1' label is in the top half of the board, the board is flipped
+          if (r1.top < cgRect.top + cgRect.height / 2) oriented = 'black';
+        }
+      }
+    }
+
+    var LN2F = {1:'a',2:'b',3:'c',4:'d',5:'e',6:'f',7:'g',8:'h'};
+
+    function parseLichessPieces(ori) {
+      var result = {};
+      var pEls = Array.from(cgBoard.querySelectorAll('piece'));
+      if (!pEls.length) pEls = Array.from(cgBoard.querySelectorAll('[class~="king"],[class~="queen"],[class~="rook"],[class~="bishop"],[class~="knight"],[class~="pawn"]'));
+      pEls.forEach(function(p) {
+        var cls = p.className || '';
+        var cm = cls.match(/\b(white|black)\b/);
+        var tm = cls.match(/\b(king|queen|rook|bishop|knight|pawn)\b/);
+        if (!cm || !tm) return;
+        var col = -1, row = -1;
+        // Primary: read chessground's inline transform (translate(Xpx, Ypx))
+        var tf = p.style.transform || '';
+        var tfM = tf.match(/translate\(\s*([-\d.]+)px[^,]*,\s*([-\d.]+)px/) ||
+                  tf.match(/translate3d\(\s*([-\d.]+)px[^,]*,\s*([-\d.]+)px/);
+        if (tfM) {
+          col = Math.round(parseFloat(tfM[1]) / sqCss);
+          row = Math.round(parseFloat(tfM[2]) / sqCss);
+        }
+        // Fallback: getBoundingClientRect
+        if (col < 0 || col > 7 || row < 0 || row > 7) {
+          var pr = p.getBoundingClientRect();
+          col = Math.round((pr.left - cgRect.left) / sq);
+          row = Math.round((pr.top  - cgRect.top)  / sq);
+        }
+        var file, rank;
+        if (ori === 'white') { file = LN2F[col + 1]; rank = 8 - row; }
+        else                 { file = LN2F[8 - col];  rank = row + 1; }
+        console.log('[Blindfold] piece', cm[1], tm[1], '→', file + rank,
+                    '| tf:', tf || 'none', '| col:', col, 'row:', row);
+        if (file && rank >= 1 && rank <= 8)
+          result[file + rank] = { file: file, rank: rank, color: cm[1], type: tm[1] };
+      });
+      return result;
+    }
+
+    var pieces = parseLichessPieces(oriented);
+
+    // Method 3: sanity-check orientation via king positions
+    if (oriented === 'white') {
+      // Black king should never start at rank ≤ 2; if it does, board is flipped
+      var bk = Object.values(pieces).find(function(p) { return p.color === 'black' && p.type === 'king'; });
+      if (bk && bk.rank <= 2) { oriented = 'black'; pieces = parseLichessPieces('black'); }
+    } else {
+      // White king should never start at rank ≥ 7 in black orientation; if it does, board is not flipped
+      var wk = Object.values(pieces).find(function(p) { return p.color === 'white' && p.type === 'king'; });
+      if (wk && wk.rank >= 7) { oriented = 'white'; pieces = parseLichessPieces('white'); }
+    }
+
+    console.log('[Blindfold] lichess orientation:', oriented, 'pieces:', Object.keys(pieces).length);
+    return { pieces: pieces, orientation: oriented, count: Object.keys(pieces).length, site: 'lichess' };
+  }
+
+  // ── Chess.com ──────────────────────────────────────────────────────────────
+  function qAll(sel, root) {
+    var res = [];
+    try { res.push.apply(res, root.querySelectorAll(sel)); } catch(e) {}
+    try {
+      root.querySelectorAll('*').forEach(function(el) {
+        if (el.shadowRoot) res.push.apply(res, qAll(sel, el.shadowRoot));
+      });
+    } catch(e) {}
+    return res;
+  }
+
+  var NUM_FILE = {1:'a',2:'b',3:'c',4:'d',5:'e',6:'f',7:'g',8:'h'};
+  var CSS_TYPE = {p:'pawn',r:'rook',n:'knight',b:'bishop',q:'queen',k:'king'};
+
+  function hasClass(el, name) {
+    return (' '+(el.className||'')+' ').includes(' '+name+' ');
+  }
+  function parseEl(el) {
+    var cls = el.className || '';
+    var sqM = cls.match(/square-(\d)(\d)/);
+    if (!sqM) return null;
+    var file = NUM_FILE[+sqM[1]], rank = +sqM[2];
+    if (!file || !rank) return null;
+    for (var ci=0; ci<2; ci++) {
+      var c = ['w','b'][ci];
+      for (var ti=0; ti<6; ti++) {
+        var t = ['p','r','n','b','q','k'][ti];
+        if (hasClass(el, c+t))
+          return {file:file, rank:rank, color:c==='w'?'white':'black', type:CSS_TYPE[t]};
+      }
+    }
+    var style = el.getAttribute('style') || '';
+    var m = style.match(/\/([wb])([prnbqk])\.(png|svg)/i);
+    if (m) return {file:file, rank:rank, color:m[1].toLowerCase()==='w'?'white':'black', type:CSS_TYPE[m[2].toLowerCase()]};
+    return null;
+  }
+
+  var pieceEls = qAll('.piece', document);
+  if (!pieceEls.length) pieceEls = qAll('[class*="piece"][class*="square"]', document);
+
+  var pieces = {};
+  pieceEls.forEach(function(el) { var p=parseEl(el); if(p) pieces[p.file+p.rank]=p; });
+
+  var board = null;
+  if (pieceEls.length) {
+    var rootNode = pieceEls[0].getRootNode();
+    board = (rootNode instanceof ShadowRoot) ? rootNode.host
+          : (pieceEls[0].closest('[class*="board"]') || pieceEls[0].parentElement);
+  }
+  var orientation = 'white';
+  if (board) {
+    if (board.getAttribute('board-orientation') === 'black' ||
+        board.getAttribute('data-orientation')  === 'black' ||
+        board.classList.contains('flipped')) orientation = 'black';
+  }
+
+  return { pieces: pieces, orientation: orientation, count: Object.keys(pieces).length, site: 'chesscom' };
+}
+
+// ── CLEAR_DRAWINGS (runs in MAIN world via executeScript) ────────────────────
+function clearPageDrawings() {
+  // Lichess: find Chessground API by searching accessible objects for setShapes+getFen
+  if (document.querySelector('cg-board')) {
+    // Fast path: some integrations store the API on .cg-wrap
+    var wrap = document.querySelector('.cg-wrap');
+    if (wrap) {
+      var direct = wrap.cg || wrap.__cg || wrap.chessground;
+      if (direct && typeof direct.setShapes === 'function') { direct.setShapes([]); return true; }
+    }
+    // Bounded window search (depth 4, up to 25 keys per object)
+    var seen = new Set();
+    function find(obj, d) {
+      if (d > 4 || !obj || seen.has(obj)) return null;
+      var tp = typeof obj;
+      if (tp !== 'object' && tp !== 'function') return null;
+      seen.add(obj);
+      try {
+        if (typeof obj.setShapes === 'function' && typeof obj.getFen === 'function') return obj;
+        var ks = Object.keys(obj);
+        for (var i = 0; i < Math.min(ks.length, 25); i++) {
+          try { var r = find(obj[ks[i]], d + 1); if (r) return r; } catch(e) {}
+        }
+      } catch(e) {}
+      return null;
+    }
+    var api = find(window, 0);
+    if (api) { api.setShapes([]); return true; }
+    // Visual fallback: remove only drawing primitives (line/circle/path) from Chessground SVGs.
+    // Keep <defs> (arrowhead markers) and <g> containers intact — Chessground stores
+    // references to those <g> elements and breaks if they're removed from the DOM.
+    var cgSvgs = Array.from(document.querySelectorAll('.cg-wrap svg'))
+                      .concat(Array.from(document.querySelectorAll('cg-board > svg')));
+    cgSvgs.forEach(function(svg) {
+      svg.querySelectorAll('line, circle, path, rect, polyline, polygon').forEach(function(el) {
+        if (!el.closest('defs')) el.remove();
+      });
+    });
+    return true;
+  }
+  // Chess.com: handled by Escape fallback in background
+  return false;
+}
+
+// ── GET_BOARD_RECT (runs in MAIN world via executeScript) ────────────────────
+function getBoardRect() {
+  // ── Lichess ────────────────────────────────────────────────────────────────
+  // Use cg-board: pieces are translated relative to it, so its rect gives exact coordinates.
+  var cg = document.querySelector('cg-board');
+  if (cg) {
+    var r = cg.getBoundingClientRect();
+    if (!r.width) return null;
+    var flipped = false;
+    // Method 1: parent element orientation class
+    var scanEl = cg.parentElement;
+    while (scanEl && scanEl !== document.body) {
+      if (/\borientation-black\b/.test(scanEl.className || '') ||
+          scanEl.getAttribute('data-orientation') === 'black') { flipped = true; break; }
+      scanEl = scanEl.parentElement;
+    }
+    // Method 2: rank coord labels — find '1' and check if it's visually at top or bottom
+    if (!flipped) {
+      var ranksEl = document.querySelector('coords.ranks');
+      if (ranksEl) {
+        var coord1 = Array.from(ranksEl.querySelectorAll('coord')).find(function(c) {
+          return c.textContent.trim() === '1';
+        });
+        if (coord1) {
+          var r1 = coord1.getBoundingClientRect();
+          if (r1.top < r.top + r.height / 2) flipped = true;
+        }
+      }
+    }
+    // Method 3: black king position — if it's in the bottom half, board is flipped
+    if (!flipped) {
+      var bkEl = Array.from(cg.querySelectorAll('piece')).find(function(p) {
+        var c = p.className || ''; return c.includes('black') && c.includes('king');
+      });
+      if (bkEl) {
+        var bkR = bkEl.getBoundingClientRect();
+        if ((bkR.top - r.top) / (r.width / 8) > 3.5) flipped = true;
+      }
+    }
+    return { left: r.left, top: r.top, width: r.width, flipped: flipped, site: 'lichess' };
+  }
+
+  // ── Chess.com ──────────────────────────────────────────────────────────────
+  var board = document.querySelector('wc-chess-board')
+           || document.querySelector('[class*="chess-board"]');
+  if (!board) return null;
+  var r = board.getBoundingClientRect();
+  if (!r.width) return null;
+  var flipped = board.getAttribute('board-orientation') === 'black'
+             || board.getAttribute('data-orientation')  === 'black'
+             || board.classList.contains('flipped');
+  return { left: r.left, top: r.top, width: r.width, flipped: flipped, site: 'chesscom' };
+}
+
+// ── Chrome Debugger Protocol helpers ─────────────────────────────────────────
+// Keep the debugger attached for the whole game (banner appears once, not per move).
+const debuggedTabs = new Set();
+
+function dbgCmd(tabId, method, params) {
+  return new Promise((resolve, reject) => {
+    chrome.debugger.sendCommand({ tabId }, method, params || {}, result => {
+      chrome.runtime.lastError
+        ? reject(new Error(chrome.runtime.lastError.message))
+        : resolve(result);
+    });
+  });
+}
+
+function ensureAttached(tabId) {
+  if (debuggedTabs.has(tabId)) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    chrome.debugger.attach({ tabId }, '1.3', () => {
+      if (chrome.runtime.lastError) {
+        const m = chrome.runtime.lastError.message || '';
+        if (m.includes('already attached')) { debuggedTabs.add(tabId); resolve(); }
+        else reject(new Error(m));
+      } else { debuggedTabs.add(tabId); resolve(); }
+    });
+  });
+}
+
+// Detach when the tab navigates away or closes
+chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
+  if (changeInfo.status === 'loading' && debuggedTabs.has(tabId)) {
+    chrome.debugger.detach({ tabId }, () => chrome.runtime.lastError);
+    debuggedTabs.delete(tabId);
+  }
+});
+chrome.tabs.onRemoved.addListener(tabId => {
+  if (debuggedTabs.has(tabId)) {
+    chrome.debugger.detach({ tabId }, () => chrome.runtime.lastError);
+    debuggedTabs.delete(tabId);
+  }
+});
+
+// ── Coordinate helpers ────────────────────────────────────────────────────────
+const FILE_NUM = { a:1, b:2, c:3, d:4, e:5, f:6, g:7, h:8 };
+
+function squareXY(rect, file, rank) {
+  const size = rect.width / 8;
+  const col  = rect.flipped ? (8 - FILE_NUM[file]) : (FILE_NUM[file] - 1);
+  const row  = rect.flipped ? (rank - 1)           : (8 - rank);
+  return {
+    x: Math.round(rect.left + col * size + size / 2),
+    y: Math.round(rect.top  + row * size + size / 2),
+  };
+}
+
+async function getRect(tabId) {
+  const results = await chrome.scripting.executeScript({
+    target: { tabId, allFrames: true },
+    func: getBoardRect,
+    world: 'MAIN',
+  }).catch(() => []);
+  return results.find(r => r.result?.width > 0)?.result ?? null;
+}
+
+// ── Message router ────────────────────────────────────────────────────────────
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (!sender.tab) return;
+  const tabId = sender.tab.id;
+
+  // GET_STATE — reads piece positions via executeScript (no debugger needed)
+  if (msg.type === 'GET_STATE') {
+    chrome.scripting.executeScript({
+      target: { tabId, allFrames: true }, func: getPageState, world: 'MAIN',
+    })
+      .then(results => {
+        const hit = results.find(r => r.result?.count > 0);
+        const r   = hit?.result ?? { pieces: {}, orientation: 'white', count: 0, site: 'unknown' };
+        const plist = Object.entries(r.pieces || {}).map(([k,v]) => v.color[0]+v.type[0]+'@'+k).join(' ');
+        console.log('[Blindfold BG] GET_STATE', r.site, r.orientation, r.count+'p |', plist);
+        sendResponse(r);
+      })
+      .catch(err => { console.error('[BG]', err.message); sendResponse({ pieces: {}, orientation: 'white' }); });
+    return true;
+  }
+
+  // CLICK_MOVE — lichess uses click-click (no fist), chess.com uses drag
+  if (msg.type === 'CLICK_MOVE') {
+    (async () => {
+      const rect = await getRect(tabId);
+      if (!rect) { sendResponse({ done: false }); return; }
+
+      const src = squareXY(rect, msg.srcFile, msg.srcRank);
+      const dst = squareXY(rect, msg.dstFile, msg.dstRank);
+
+      await ensureAttached(tabId);
+      console.log('[Blindfold BG] CLICK_MOVE', msg.srcFile+msg.srcRank, '→', msg.dstFile+msg.dstRank,
+                  '| src:', src.x, src.y, '| dst:', dst.x, dst.y, '| site:', rect.site);
+
+      if (rect.site === 'lichess') {
+        // Lichess/chessground: click-to-move (click src to select, click dst to move)
+        await dbgCmd(tabId, 'Input.dispatchMouseEvent',
+          { type: 'mousePressed',  x: src.x, y: src.y, button: 'left', buttons: 1, clickCount: 1, pointerType: 'mouse' });
+        await dbgCmd(tabId, 'Input.dispatchMouseEvent',
+          { type: 'mouseReleased', x: src.x, y: src.y, button: 'left', buttons: 0, clickCount: 1, pointerType: 'mouse' });
+        await new Promise(r => setTimeout(r, 80));
+        await dbgCmd(tabId, 'Input.dispatchMouseEvent',
+          { type: 'mousePressed',  x: dst.x, y: dst.y, button: 'left', buttons: 1, clickCount: 1, pointerType: 'mouse' });
+        await dbgCmd(tabId, 'Input.dispatchMouseEvent',
+          { type: 'mouseReleased', x: dst.x, y: dst.y, button: 'left', buttons: 0, clickCount: 1, pointerType: 'mouse' });
+      } else {
+        // Chess.com: drag (hover → press → move → release)
+        await dbgCmd(tabId, 'Input.dispatchMouseEvent',
+          { type: 'mouseMoved',    x: src.x, y: src.y, button: 'none',  buttons: 0, pointerType: 'mouse' });
+        await dbgCmd(tabId, 'Input.dispatchMouseEvent',
+          { type: 'mousePressed',  x: src.x, y: src.y, button: 'left',  buttons: 1, clickCount: 1, pointerType: 'mouse' });
+        await dbgCmd(tabId, 'Input.dispatchMouseEvent',
+          { type: 'mouseMoved',    x: dst.x, y: dst.y, button: 'left',  buttons: 1, pointerType: 'mouse' });
+        await dbgCmd(tabId, 'Input.dispatchMouseEvent',
+          { type: 'mouseReleased', x: dst.x, y: dst.y, button: 'left',  buttons: 0, clickCount: 1, pointerType: 'mouse' });
+      }
+
+      // Pawn promotion: click the queen option (appears at the destination square on both sites)
+      if (msg.isPromotion) {
+        await new Promise(r => setTimeout(r, 200));
+        await dbgCmd(tabId, 'Input.dispatchMouseEvent',
+          { type: 'mousePressed',  x: dst.x, y: dst.y, button: 'left', buttons: 1, clickCount: 1, pointerType: 'mouse' });
+        await dbgCmd(tabId, 'Input.dispatchMouseEvent',
+          { type: 'mouseReleased', x: dst.x, y: dst.y, button: 'left', buttons: 0, clickCount: 1, pointerType: 'mouse' });
+      }
+
+      sendResponse({ done: true });
+    })().catch(err => {
+      console.error('[BG CLICK_MOVE]', err.message);
+      sendResponse({ done: false });
+    });
+    return true;
+  }
+
+  // DRAW_HIGHLIGHT — right-click a square via CDP (works on both sites)
+  if (msg.type === 'DRAW_HIGHLIGHT') {
+    (async () => {
+      const rect = await getRect(tabId);
+      if (!rect) { sendResponse({}); return; }
+      const { x, y } = squareXY(rect, msg.file, msg.rank);
+      await ensureAttached(tabId);
+      await dbgCmd(tabId, 'Input.dispatchMouseEvent',
+        { type: 'mousePressed',  x, y, button: 'right', buttons: 2, clickCount: 1, pointerType: 'mouse' });
+      await dbgCmd(tabId, 'Input.dispatchMouseEvent',
+        { type: 'mouseReleased', x, y, button: 'right', buttons: 0, clickCount: 1, pointerType: 'mouse' });
+      sendResponse({});
+    })().catch(() => sendResponse({}));
+    return true;
+  }
+
+  // CLEAR_DRAWINGS — executeScript for lichess (Chessground API), Escape CDP for chess.com
+  if (msg.type === 'CLEAR_DRAWINGS') {
+    (async () => {
+      const results = await chrome.scripting.executeScript({
+        target: { tabId, allFrames: true }, func: clearPageDrawings, world: 'MAIN',
+      }).catch(() => []);
+      const handled = results.some(r => r.result === true);
+      if (!handled) {
+        await ensureAttached(tabId);
+        await dbgCmd(tabId, 'Input.dispatchKeyEvent',
+          { type: 'keyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
+        await dbgCmd(tabId, 'Input.dispatchKeyEvent',
+          { type: 'keyUp',   key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
+      }
+      sendResponse({});
+    })().catch(() => sendResponse({}));
+    return true;
+  }
+
+  // DRAW_ARROW — right-click drag via CDP (chess.com) or DOM events (lichess)
+  if (msg.type === 'DRAW_ARROW') {
+    (async () => {
+      const rect = await getRect(tabId);
+      if (!rect) { sendResponse({}); return; }
+      const src = squareXY(rect, msg.f1, msg.r1);
+      const dst = squareXY(rect, msg.f2, msg.r2);
+      const mid = { x: Math.round((src.x + dst.x) / 2), y: Math.round((src.y + dst.y) / 2) };
+
+      await ensureAttached(tabId);
+      await dbgCmd(tabId, 'Input.dispatchMouseEvent',
+        { type: 'mousePressed',  x: src.x, y: src.y, button: 'right', buttons: 2, clickCount: 1, pointerType: 'mouse' });
+      await dbgCmd(tabId, 'Input.dispatchMouseEvent',
+        { type: 'mouseMoved',    x: mid.x, y: mid.y, button: 'none',  buttons: 2, pointerType: 'mouse' });
+      await dbgCmd(tabId, 'Input.dispatchMouseEvent',
+        { type: 'mouseMoved',    x: dst.x, y: dst.y, button: 'none',  buttons: 2, pointerType: 'mouse' });
+      await dbgCmd(tabId, 'Input.dispatchMouseEvent',
+        { type: 'mouseReleased', x: dst.x, y: dst.y, button: 'right', buttons: 0, clickCount: 1, pointerType: 'mouse' });
+      sendResponse({});
+    })().catch(() => sendResponse({}));
+    return true;
+  }
+});

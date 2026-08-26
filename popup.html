@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      width: 260px;
+      padding: 14px;
+      font-family: system-ui, sans-serif;
+      font-size: 13px;
+      background: #1a1a2e;
+      color: #e0e0e0;
+    }
+    h2 { font-size: 15px; margin-bottom: 10px; color: #58a6ff; }
+    .section { margin-bottom: 10px; }
+    .section-title { font-size: 11px; text-transform: uppercase; color: #888; margin-bottom: 4px; letter-spacing: 0.05em; }
+    .row { display: flex; align-items: center; gap: 6px; margin: 3px 0; }
+    kbd {
+      background: #2d2d2d;
+      border: 1px solid #555;
+      border-bottom-width: 2px;
+      border-radius: 3px;
+      padding: 1px 5px;
+      font-size: 12px;
+      font-family: monospace;
+      color: #eee;
+    }
+    .sep { color: #555; }
+    .note { font-size: 11px; color: #888; margin-top: 8px; line-height: 1.4; }
+    hr { border: none; border-top: 1px solid #333; margin: 8px 0; }
+  </style>
+</head>
+<body>
+  <h2>♟ Blindfold Chess</h2>
+
+  <div class="section">
+    <div class="section-title">Move mode (default)</div>
+    <div class="row">Type 3 keys: <strong>piece · file · rank</strong></div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">Pieces</div>
+    <div class="row"><kbd>s</kbd>=king <kbd>d</kbd>=rook <kbd>f</kbd>=pawn</div>
+    <div class="row"><kbd>j</kbd>=knight <kbd>k</kbd>=bishop <kbd>l</kbd>=queen</div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">Files</div>
+    <div class="row">
+      <kbd>a</kbd>=a <kbd>s</kbd>=b <kbd>d</kbd>=c <kbd>f</kbd>=d
+      <kbd>j</kbd>=e <kbd>k</kbd>=f <kbd>l</kbd>=g <kbd>;</kbd>=h
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">Ranks</div>
+    <div class="row">
+      <kbd>a</kbd>=1 <kbd>s</kbd>=2 <kbd>d</kbd>=3 <kbd>f</kbd>=4
+      <kbd>j</kbd>=5 <kbd>k</kbd>=6 <kbd>l</kbd>=7 <kbd>;</kbd>=8
+    </div>
+  </div>
+
+  <hr>
+
+  <div class="section">
+    <div class="section-title">Castling</div>
+    <div class="row">Kingside (white): <kbd>s</kbd><kbd>l</kbd><kbd>a</kbd> → king to g1</div>
+    <div class="row">Queenside (white): <kbd>s</kbd><kbd>d</kbd><kbd>a</kbd> → king to c1</div>
+    <div class="row">(Black mirrors: g8/c8)</div>
+  </div>
+
+  <hr>
+
+  <div class="section">
+    <div class="section-title">Ambiguous moves</div>
+    <div class="row">If two pieces can reach the same square, you'll hear <em>"ambiguous"</em>.</div>
+    <div class="row">Press a 4th key for the <strong>source file or rank</strong> to disambiguate.</div>
+    <div class="row">Example: Ra1→d1 vs Rh1→d1 → type <kbd>s</kbd><kbd>f</kbd><kbd>d</kbd><kbd>a</kbd> (rook d1, from file a)</div>
+  </div>
+
+  <hr>
+
+  <div class="section">
+    <div class="section-title">Puzzle replay</div>
+    <div class="row"><kbd>g</kbd> → previous move &nbsp; <kbd>h</kbd> → next move</div>
+  </div>
+
+  <hr>
+
+  <div class="section">
+    <div class="section-title">Draw mode — press <kbd>m</kbd> to toggle</div>
+    <div class="row">2 keys (file+rank) → highlight square</div>
+    <div class="row">4 keys (file+rank+file+rank) → draw arrow</div>
+    <div class="row"><kbd>c</kbd> → clear all drawings (works in any mode)</div>
+  </div>
+
+  <p class="note">
+    Extension activates automatically when a chess.com game board is detected.
+    Opponent moves are announced aloud. Your moves are confirmed on key entry.
+  </p>
+</body>
+</html>

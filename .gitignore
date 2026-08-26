@@ -1,0 +1,10 @@
+node_modules/
+*.zip
+package-lock.json
+package.json
+generate-icons.js
+chess-logic.js
+background_drag.js
+tests/
+__tests__/
+*.test.js

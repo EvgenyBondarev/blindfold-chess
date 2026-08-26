@@ -1,0 +1,33 @@
+{
+  "manifest_version": 3,
+  "name": "Blindfold Chess",
+  "version": "1.0",
+  "description": "Play blindfold chess on chess.com and lichess.org. Keyboard-driven moves with text-to-speech narration — no board required.",
+  "permissions": ["scripting", "debugger"],
+  "host_permissions": ["*://www.chess.com/*", "*://lichess.org/*"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["*://www.chess.com/*", "*://lichess.org/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle",
+      "all_frames": false
+    }
+  ],
+  "icons": {
+    "16":  "icon16.png",
+    "48":  "icon48.png",
+    "128": "icon128.png"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Blindfold Chess",
+    "default_icon": {
+      "16":  "icon16.png",
+      "48":  "icon48.png",
+      "128": "icon128.png"
+    }
+  }
+}
