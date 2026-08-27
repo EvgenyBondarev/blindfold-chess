@@ -18,7 +18,7 @@
   const NUM_TO_FILE = { 1: 'a', 2: 'b', 3: 'c', 4: 'd', 5: 'e', 6: 'f', 7: 'g', 8: 'h' };
 
   // ── Settings ────────────────────────────────────────────────────────────────
-  const SETTING_DEFAULTS = { moveNarration: true, drawNarration: true, puzzleSounds: true };
+  const SETTING_DEFAULTS = { moveNarration: true, drawNarration: true, puzzleSounds: true, seqInput: true };
   let settings = { ...SETTING_DEFAULTS };
   chrome.storage.sync.get(SETTING_DEFAULTS, vals => { settings = vals; });
   chrome.storage.onChanged.addListener((changes, area) => {
@@ -45,6 +45,9 @@
   let pendingDisambig  = null;  // {piece, file, rank, candidates} when move is ambiguous
   let queuedKey        = null;  // 4th key buffered while executeMove was still in flight
   let puzzleComplete   = false; // true after puzzle is solved — suppresses replay announcements
+  let seqBranches      = [];    // active variation branches (each is a string[] of 3-char tokens)
+  let seqStep          = 0;     // number of player moves submitted so far in the sequence
+  let seqBranchMode    = false; // true when multiple lines were entered (opponent-move matching)
 
   // ── Messaging helper ────────────────────────────────────────────────────────
   function send(msg) {
@@ -141,6 +144,7 @@
       if (isPuzzleWon()) {
         waitingForOpponent = false;
         puzzleComplete = true;
+        seqBranches = [];
         playSuccessTone();
         clearTimeout(puzzleTimeout);
       }
@@ -149,16 +153,68 @@
       clearTimeout(quickTimer);
       if (!waitingForOpponent) return;
       waitingForOpponent = false;
-      if (isPuzzleWon()) { puzzleComplete = true; playSuccessTone(); }
-      else               { playFailureTone(); if (settings.moveNarration) speak('wrong'); }
+      if (isPuzzleWon()) { puzzleComplete = true; seqBranches = []; playSuccessTone(); }
+      else               { seqBranches = []; playFailureTone(); if (settings.moveNarration) speak('wrong'); }
     }, 1500);
   }
 
-  function onOpponentMoved() {
+  function onOpponentMoved(oppSAN) {
     if (!waitingForOpponent) return;
     waitingForOpponent = false;
     clearTimeout(puzzleTimeout);
     playSuccessTone();
+    advanceSequence(oppSAN);
+  }
+
+  // ── Sequence management ─────────────────────────────────────────────────────
+  // Converts a SAN string to the 3-key token the user would type for that move.
+  // Used to match the observed opponent move against the user's predictions.
+  function sanToKey(san) {
+    if (!san) return null;
+    san = san.trim().replace(/[+#!?x]/g, '');
+    const PK = { N: 'j', B: 'k', R: 'd', Q: 'l', K: 's' };
+    const FK = { a: 'a', b: 's', c: 'd', d: 'f', e: 'j', f: 'k', g: 'l', h: ';' };
+    const RK = { 1: 'a', 2: 's', 3: 'd', 4: 'f', 5: 'j', 6: 'k', 7: 'l', 8: ';' };
+    if (san === 'OO')   return 'sla'; // O-O  (x stripped)
+    if (san === 'OOO')  return 'sda'; // O-O-O
+    let s = san;
+    let pk = 'f';
+    if (s[0] && PK[s[0]]) { pk = PK[s[0]]; s = s.slice(1); }
+    const pi = s.indexOf('=');
+    if (pi !== -1) s = s.slice(0, pi);
+    const dest = s.slice(-2);
+    const fk = FK[dest[0]], rk = RK[parseInt(dest[1])];
+    return (fk && rk) ? pk + fk + rk : null;
+  }
+
+  function advanceSequence(oppSAN) {
+    if (!seqBranches.length) return;
+
+    if (seqBranchMode) {
+      // Opponent positions in each branch: index 1, 3, 5... = seqStep*2 - 1
+      const oppIdx = seqStep * 2 - 1;
+      const actual = sanToKey(oppSAN);
+      seqBranches = seqBranches.filter(b =>
+        b.length > oppIdx && (b[oppIdx] === actual || b[oppIdx] === '*')
+      );
+      if (!seqBranches.length) {
+        if (settings.moveNarration) speak('no matching branch');
+        return;
+      }
+    }
+
+    // Next player move: in branch mode index seqStep*2, in simple mode index seqStep
+    const playerIdx = seqBranchMode ? seqStep * 2 : seqStep;
+    const token = seqBranches[0]?.[playerIdx];
+    if (!token) { seqBranches = []; return; } // sequence complete
+
+    const piece = PIECE_FROM_KEY[token[0]];
+    const file  = FILE_FROM_KEY[token[1]];
+    const rank  = RANK_FROM_KEY[token[2]];
+    if (!piece || !file || !rank) { seqBranches = []; return; }
+
+    seqStep++;
+    setTimeout(() => executeMove(piece, file, rank, null, null), 400);
   }
 
   // ── Puzzle navigation helpers ────────────────────────────────────────────────
@@ -174,6 +230,7 @@
     waitingForOpponent = false;
     clearTimeout(puzzleTimeout);
     puzzleComplete = false;
+    seqBranches = [];
     lastActiveSAN = '';
 
     // Read the first puzzle move's SAN from .puzzle__moves (text-only, no side effects).
@@ -305,13 +362,14 @@
       console.log('[Blindfold] move:', playerColor, pieceType, '→', dstFile+dstRank,
                   '| candidates:', candidates.map(p => p.file+p.rank));
 
-      if (candidates.length === 0) { speak('no valid move'); return; }
+      if (candidates.length === 0) { seqBranches = []; speak('no valid move'); return; }
 
       if (candidates.length > 1 && !disambigKey) {
         if (queuedKey !== null) {
           disambigKey = queuedKey;  // user already pressed the 4th key while we were busy
           queuedKey = null;
         } else {
+          seqBranches = [];
           pendingDisambig = { piece: pieceType, file: dstFile, rank: dstRank, candidates };
           speak('ambiguous');
           return;
@@ -326,8 +384,9 @@
         let filtered = srcFile ? candidates.filter(p => p.file === srcFile) : [];
         if (filtered.length === 0) filtered = srcRank ? candidates.filter(p => p.rank === srcRank) : [];
         candidates = filtered;
-        if (candidates.length === 0) { speak('no valid move'); return; }
+        if (candidates.length === 0) { seqBranches = []; speak('no valid move'); return; }
         if (candidates.length > 1) {
+          seqBranches = [];
           pendingDisambig = { piece: pieceType, file: dstFile, rank: dstRank, candidates: origCandidates };
           speak('still ambiguous'); return;
         }
@@ -350,6 +409,119 @@
     }
   }
 
+  // ── Sequence input overlay ───────────────────────────────────────────────────
+  let seqOverlay = null;
+
+  function getSeqOverlay() {
+    if (seqOverlay && document.body.contains(seqOverlay)) return seqOverlay;
+
+    const overlay = document.createElement('div');
+    overlay.style.cssText =
+      'position:fixed;inset:0;background:rgba(0,0,0,.65);display:none;' +
+      'align-items:flex-start;justify-content:center;padding-top:80px;' +
+      'z-index:999999;font-family:system-ui,sans-serif;';
+
+    const box = document.createElement('div');
+    box.style.cssText =
+      'background:#1a1a2e;border:1px solid #444;border-radius:8px;' +
+      'padding:16px;width:400px;box-shadow:0 8px 32px rgba(0,0,0,.6);';
+
+    const label = document.createElement('div');
+    label.style.cssText = 'color:#888;font-size:11px;text-transform:uppercase;' +
+                          'letter-spacing:.05em;margin-bottom:8px;';
+    label.textContent = 'Move sequence — Enter to submit · Esc to cancel';
+
+    const ta = document.createElement('textarea');
+    ta.id = 'bc-seq-ta';
+    ta.rows = 4;
+    ta.placeholder =
+      'One line = simple sequence (your moves):\n' +
+      '  fjf skl fjj\n\n' +
+      'Multiple lines = branches (your move, opp prediction, your move…):\n' +
+      '  fjf jkl skl\n' +
+      '  fjf fkl dkd\n' +
+      'Use * as wildcard for any opponent move.';
+    ta.spellcheck = false;
+    ta.autocomplete = 'off';
+    ta.style.cssText =
+      'width:100%;background:#0d1117;border:1px solid #555;border-radius:4px;' +
+      'color:#e0e0e0;font-size:13px;font-family:monospace;padding:8px 10px;' +
+      'outline:none;box-sizing:border-box;resize:vertical;line-height:1.5;';
+
+    const status = document.createElement('div');
+    status.id = 'bc-seq-status';
+    status.style.cssText = 'font-size:12px;margin-top:8px;min-height:16px;color:#58a6ff;';
+
+    box.append(label, ta, status);
+    overlay.appendChild(box);
+    document.body.appendChild(overlay);
+
+    overlay.addEventListener('click', ev => { if (ev.target === overlay) hideSeqOverlay(); });
+    ta.addEventListener('keydown', ev => {
+      ev.stopPropagation();
+      if (ev.key === 'Escape') { hideSeqOverlay(); return; }
+      if (ev.key === 'Enter' && !ev.shiftKey) {
+        ev.preventDefault();
+        submitSeq(ta.value, status);
+      }
+    });
+
+    seqOverlay = overlay;
+    return overlay;
+  }
+
+  function showSeqOverlay() {
+    const overlay = getSeqOverlay();
+    overlay.style.display = 'flex';
+    const ta = overlay.querySelector('#bc-seq-ta');
+    ta.value = '';
+    overlay.querySelector('#bc-seq-status').textContent = '';
+    setTimeout(() => ta.focus(), 0);
+  }
+
+  function hideSeqOverlay() {
+    if (seqOverlay) seqOverlay.style.display = 'none';
+  }
+
+  function submitSeq(raw, statusEl) {
+    const lines = raw.split('\n').map(l => l.trim()).filter(Boolean);
+    if (!lines.length) return;
+
+    const branches = lines.map(l => l.split(/\s+/).filter(Boolean));
+
+    // Validate every token is exactly 3 chars and maps to known keys
+    for (const b of branches) {
+      for (const tok of b) {
+        if (tok !== '*' && (tok.length !== 3 ||
+            !PIECE_FROM_KEY[tok[0]] || !FILE_FROM_KEY[tok[1]] || !RANK_FROM_KEY[tok[2]])) {
+          statusEl.style.color = '#f85149';
+          statusEl.textContent = `Invalid token: "${tok}"`;
+          return;
+        }
+      }
+    }
+
+    const isMulti = branches.length > 1;
+    // In multi-line mode all branches must share the same first player move
+    if (isMulti && branches.some(b => b[0] !== branches[0][0])) {
+      statusEl.style.color = '#f85149';
+      statusEl.textContent = 'All lines must start with the same first move';
+      return;
+    }
+
+    const firstToken = branches[0][0];
+    const piece = PIECE_FROM_KEY[firstToken[0]];
+    const file  = FILE_FROM_KEY[firstToken[1]];
+    const rank  = RANK_FROM_KEY[firstToken[2]];
+
+    seqBranches   = branches;
+    seqBranchMode = isMulti;
+    seqStep       = 1; // first move is about to be submitted
+
+    hideSeqOverlay();
+    setTimeout(() => executeMove(piece, file, rank, null, null), 50);
+  }
+
   // ── Keyboard handling ───────────────────────────────────────────────────────
   function isTypingEl() {
     const el = document.activeElement;
@@ -361,19 +533,20 @@
     if (isTypingEl()) return;
 
     if (e.key === 'Enter' && isPuzzlePage()) {
-      // Only act after puzzle is resolved — .puzzle__feedback buttons appear then.
-      // If they're absent the puzzle is still in play; let Enter fall through (lichess uses it for hints).
-      const candidates = [
+      const feedbackBtns = [
         ...document.querySelectorAll('.puzzle__feedback a, .puzzle__feedback button'),
       ];
-      if (candidates.length) {
-        const btn = candidates.find(b =>
+      if (feedbackBtns.length) {
+        // Puzzle resolved — click the continue button
+        const btn = feedbackBtns.find(b =>
           !/(practice|computer|again)/i.test(b.textContent + (b.getAttribute('href') || ''))
-        ) || candidates[0];
+        ) || feedbackBtns[0];
         if (btn) { e.preventDefault(); btn.click(); }
         return;
       }
-      return; // puzzle still active — don't intercept
+      // Puzzle still active — open sequence input if enabled, else let lichess handle it
+      if (settings.seqInput) { e.preventDefault(); showSeqOverlay(); }
+      return;
     }
 
     if (e.key === 'g') {
@@ -508,7 +681,7 @@
         navKeyPressed = false;
         if (settings.moveNarration) speak(readSAN(san));
       } else {
-        onOpponentMoved();
+        onOpponentMoved(san);
         if (settings.moveNarration) speakQueued(readSAN(san));
       }
     }
@@ -598,7 +771,8 @@
   new MutationObserver(() => {
     if (location.href !== lastUrl) {
       lastUrl = location.href; gameActive = false; moveBuffer = ''; drawBuffer = '';
-      lastMoveText = ''; waitingForOpponent = false; clearTimeout(puzzleTimeout); puzzleComplete = false;
+      lastMoveText = ''; waitingForOpponent = false; clearTimeout(puzzleTimeout);
+      puzzleComplete = false; seqBranches = [];
       if (moveObserver) { moveObserver.disconnect(); moveObserver = null; }
       setTimeout(() => { if (hasBoard()) onGameStart(); }, 1200);
     } else {
