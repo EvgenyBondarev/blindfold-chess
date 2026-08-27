@@ -193,6 +193,7 @@
 
   function movesMatch(predicted, actual) {
     if (predicted === '*') return true;
+    if (Array.isArray(predicted)) return predicted.some(p => movesMatch(p, actual));
     if (predicted.piece !== actual.piece || predicted.file !== actual.file) return false;
     // null rank = castle (color unknown at prediction time): match by piece+file only
     if (predicted.rank === null || actual.rank === null) return true;
@@ -536,6 +537,18 @@
         insertAtCursor(ta, '* '); return;
       }
 
+      // / after a completed token: remove the trailing space and append / so the
+      // next group becomes an alternative (e.g. Kg1/ then type Ke1 → Kg1/Ke1)
+      if (ev.key === '/' && !seqBuffer.length) {
+        ev.preventDefault();
+        const pos = ta.selectionStart;
+        if (pos > 0 && ta.value[pos - 1] === ' ') {
+          ta.value = ta.value.slice(0, pos - 1) + '/' + ta.value.slice(pos);
+          ta.selectionStart = ta.selectionEnd = pos; // cursor stays after /
+        }
+        return;
+      }
+
       // Validate key for position in group
       const isFirst = seqBuffer.length === 0;
       if (!(isFirst ? PIECE_KEYS : FILE_RANK_KEYS).has(ev.key)) return;
@@ -585,26 +598,45 @@
       const moves = [];
       for (const tok of toks) {
         if (tok === '*') { moves.push('*'); continue; }
-        const m = algebraicToMove(tok);
-        if (!m) {
-          statusEl.style.color = '#f85149';
-          statusEl.textContent = `Invalid move "${tok}" on line ${li + 1}`;
-          return;
+        // tok may be "Kg1/Ke1" — split into alternatives
+        const alts = tok.split('/');
+        if (alts.length > 1) {
+          const parsed = alts.map(algebraicToMove);
+          if (parsed.some(m => !m)) {
+            statusEl.style.color = '#f85149';
+            statusEl.textContent = `Invalid move in "${tok}" on line ${li + 1}`;
+            return;
+          }
+          moves.push(parsed); // array = alternatives
+        } else {
+          const m = algebraicToMove(tok);
+          if (!m) {
+            statusEl.style.color = '#f85149';
+            statusEl.textContent = `Invalid move "${tok}" on line ${li + 1}`;
+            return;
+          }
+          moves.push(m);
         }
-        moves.push(m);
       }
       branches.push(moves);
     }
 
     if (!branches[0]?.length) return;
     const first = branches[0][0];
-    if (first === '*') { statusEl.style.color = '#f85149'; statusEl.textContent = 'First move cannot be *'; return; }
+    if (first === '*' || Array.isArray(first)) {
+      statusEl.style.color = '#f85149'; statusEl.textContent = 'First move cannot be * or an alternative'; return;
+    }
 
-    const isMulti = branches.length > 1;
-    if (isMulti) {
+    // Branch mode if multiple lines OR any token is an opponent prediction (*, array, or
+    // single-line has only player moves otherwise)
+    const hasOppPredictions = branches.some(b => b.some(m => m === '*' || Array.isArray(m)));
+    const isMulti = branches.length > 1 || hasOppPredictions;
+
+    if (branches.length > 1) {
       for (const b of branches) {
         const f = b[0];
-        if (f === '*' || f.piece !== first.piece || f.file !== first.file || f.rank !== first.rank) {
+        if (f === '*' || Array.isArray(f) ||
+            f.piece !== first.piece || f.file !== first.file || f.rank !== first.rank) {
           statusEl.style.color = '#f85149';
           statusEl.textContent = 'All lines must share the same first move';
           return;
