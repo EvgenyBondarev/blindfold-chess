@@ -58,6 +58,7 @@
     <div class="preset-row">
       <button class="preset" id="preset-homerow">Home row</button>
       <button class="preset" id="preset-standard">Standard</button>
+      <button class="preset" id="preset-custom">Custom</button>
     </div>
   </div>
 
@@ -105,9 +106,15 @@
 
   <div class="section">
     <div class="section-title">Castling</div>
-    <div class="row">Kingside (white): <span id="castle-ks"></span> → king to g1</div>
-    <div class="row">Queenside (white): <span id="castle-qs"></span> → king to c1</div>
-    <div class="row">(Black mirrors: g8 / c8)</div>
+    <div id="castle-standard-view" style="display:none">
+      <div class="row"><kbd>o</kbd><kbd>o</kbd> → O-O &nbsp;&nbsp; <kbd>o</kbd><kbd>o</kbd><kbd>o</kbd> → O-O-O</div>
+    </div>
+    <div id="castle-input-view">
+      <div class="grid2" style="display:grid;grid-template-columns:1fr 1fr;gap:4px 6px;">
+        <div class="kmap"><input class="ki" id="ck-ks"> O-O</div>
+        <div class="kmap"><input class="ki" id="ck-qs"> O-O-O</div>
+      </div>
+    </div>
   </div>
 
   <hr>
@@ -116,6 +123,7 @@
     <div class="section-title">Ambiguous moves</div>
     <div class="row">If two pieces can reach the same square, you'll hear <em>"ambiguous"</em>.</div>
     <div class="row">Press a 4th key for the <strong>source file or rank</strong> to disambiguate.</div>
+    <div class="row" id="disambig-example" style="color:#888;font-size:11px"></div>
   </div>
 
   <hr>
@@ -141,12 +149,24 @@
     <div class="row"><label><input type="checkbox" id="moveNarration"> Move narration</label></div>
     <div class="row"><label><input type="checkbox" id="drawNarration"> Draw narration</label></div>
     <div class="row"><label><input type="checkbox" id="puzzleSounds"> Puzzle sounds</label></div>
-    <div class="row"><label><input type="checkbox" id="seqInput"> Sequence input (Enter)</label></div>
+    <div class="row"><label><input type="checkbox" id="seqInput"> Sequence input (i) — toggle with <kbd>q</kbd></label></div>
   </div>
 
   <p class="note">
     Opponent moves are announced aloud. Your moves are confirmed on key entry.
   </p>
+
+  <hr>
+
+  <div class="section">
+    <div class="section-title">Ruy Lopez playlist — early game (&lt; move 10)</div>
+    <div id="pl-status" style="font-size:11px;color:#888;margin-bottom:6px;">—</div>
+    <div class="preset-row">
+      <button class="preset" id="pl-start">Start</button>
+      <button class="preset" id="pl-stop">Stop</button>
+      <button class="preset" id="pl-restart">Restart</button>
+    </div>
+  </div>
 
   <script src="popup.js"></script>
 </body>

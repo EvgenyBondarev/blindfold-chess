@@ -47,19 +47,14 @@ function applyToInputs(pieceKeys, fileKeys, rankKeys) {
   for (const p of PIECE_IDS) document.getElementById('pk-'+p).value = pieceKeys[p] ?? '';
   for (const f of FILE_IDS)  document.getElementById('fk-'+f).value = fileKeys[f]  ?? '';
   for (const r of RANK_IDS)  document.getElementById('rk-'+r).value = rankKeys[r]  ?? '';
-  updateCastlingDisplay(pieceKeys, fileKeys, rankKeys);
   highlightActivePreset(pieceKeys, fileKeys, rankKeys);
 }
 
-function updateCastlingDisplay(pieceKeys, fileKeys, rankKeys) {
-  const k = (key) => key ? `<kbd>${key}</kbd>` : '<kbd>?</kbd>';
-  const pk = pieceKeys.king ?? '?';
-  const g  = fileKeys.g    ?? '?';
-  const c  = fileKeys.c    ?? '?';
-  const r1 = rankKeys['1'] ?? '?';
-  const r8 = rankKeys['8'] ?? '?';
-  document.getElementById('castle-ks').innerHTML = k(pk)+k(g)+k(r1);
-  document.getElementById('castle-qs').innerHTML = k(pk)+k(c)+k(r1);
+function loadCastleInputs() {
+  chrome.storage.sync.get({ castleKeys: { kingside: '', queenside: '' } }, vals => {
+    document.getElementById('ck-ks').value = vals.castleKeys?.kingside  ?? '';
+    document.getElementById('ck-qs').value = vals.castleKeys?.queenside ?? '';
+  });
 }
 
 function presetsMatch(a, b) {
@@ -69,8 +64,26 @@ function presetsMatch(a, b) {
 
 function highlightActivePreset(pieceKeys, fileKeys, rankKeys) {
   const cur = { pieceKeys, fileKeys, rankKeys };
-  document.getElementById('preset-homerow').classList.toggle('active', presetsMatch(cur, PRESETS.homerow));
-  document.getElementById('preset-standard').classList.toggle('active', presetsMatch(cur, PRESETS.standard));
+  const isHomerow  = presetsMatch(cur, PRESETS.homerow);
+  const isStandard = presetsMatch(cur, PRESETS.standard);
+  document.getElementById('preset-homerow').classList.toggle('active', isHomerow);
+  document.getElementById('preset-standard').classList.toggle('active', isStandard);
+  document.getElementById('preset-custom').classList.toggle('active', !isHomerow && !isStandard);
+  document.getElementById('castle-standard-view').style.display = isStandard ? '' : 'none';
+  document.getElementById('castle-input-view').style.display    = isStandard ? 'none' : '';
+  updateDisambigExample(pieceKeys, fileKeys, rankKeys);
+}
+
+function updateDisambigExample(pieceKeys, fileKeys, rankKeys) {
+  const nk = pieceKeys.knight ?? '?';
+  const dk = fileKeys.d ?? '?';
+  const ek = fileKeys.e ?? '?';
+  const tk = rankKeys['2'] ?? '?';
+  const bk = fileKeys.b ?? '?';
+  const k  = key => `<kbd>${key}</kbd>`;
+  const el = document.getElementById('disambig-example');
+  if (el) el.innerHTML =
+    `e.g. ${k(nk)}${k(dk)}${k(tk)} → ambiguous → press ${k(bk)} (b-file) for Nbd2, or ${k(ek)} (e-file) for Ned2`;
 }
 
 // Validate: no duplicate keys within the same group; highlight errors
@@ -97,7 +110,6 @@ function saveLayout() {
   const { pieceKeys, fileKeys, rankKeys } = readInputs();
   if (!validate(pieceKeys, fileKeys, rankKeys)) return;
   chrome.storage.sync.set({ pieceKeys, fileKeys, rankKeys });
-  updateCastlingDisplay(pieceKeys, fileKeys, rankKeys);
   highlightActivePreset(pieceKeys, fileKeys, rankKeys);
 }
 
@@ -105,6 +117,7 @@ function saveLayout() {
 chrome.storage.sync.get(LAYOUT_DEFAULTS, vals => {
   applyToInputs(vals.pieceKeys, vals.fileKeys, vals.rankKeys);
 });
+loadCastleInputs();
 
 // Single-char enforcement + save on each input change
 for (const p of PIECE_IDS) {
@@ -137,3 +150,85 @@ document.getElementById('preset-standard').addEventListener('click', () => {
   chrome.storage.sync.set({ pieceKeys: p.pieceKeys, fileKeys: p.fileKeys, rankKeys: p.rankKeys });
   applyToInputs(p.pieceKeys, p.fileKeys, p.rankKeys);
 });
+document.getElementById('preset-custom').addEventListener('click', () => {
+  const empty = key => Object.fromEntries(Object.keys(PRESETS.homerow[key]).map(k => [k, '']));
+  const pieceKeys  = empty('pieceKeys');
+  const fileKeys   = empty('fileKeys');
+  const rankKeys   = empty('rankKeys');
+  const castleKeys = { kingside: '', queenside: '' };
+  chrome.storage.sync.set({ pieceKeys, fileKeys, rankKeys, castleKeys }, loadCastleInputs);
+  applyToInputs(pieceKeys, fileKeys, rankKeys);
+});
+
+// Custom castle key inputs — saved independently from the layout
+function saveCastleKeys() {
+  const castleKeys = {
+    kingside:  document.getElementById('ck-ks').value,
+    queenside: document.getElementById('ck-qs').value,
+  };
+  chrome.storage.sync.set({ castleKeys });
+}
+document.getElementById('ck-ks').addEventListener('input', function() {
+  this.value = this.value.slice(-1).toLowerCase();
+  saveCastleKeys();
+});
+document.getElementById('ck-qs').addEventListener('input', function() {
+  this.value = this.value.slice(-1).toLowerCase();
+  saveCastleKeys();
+});
+
+// ── Playlist ──────────────────────────────────────────────────────────────────
+(function () {
+  const statusEl = document.getElementById('pl-status');
+
+  function updateUI() {
+    chrome.storage.local.get({ playlistItems: [], playlistIndex: 0, playlistActive: false }, v => {
+      const total = v.playlistItems.length;
+      if (!total) { statusEl.textContent = 'No puzzles loaded'; return; }
+      const rating = v.playlistItems[v.playlistIndex]?.[1] ?? '?';
+      statusEl.style.color = v.playlistActive ? '#58a6ff' : '#888';
+      statusEl.textContent = (v.playlistActive ? '▶ Active' : '■ Paused') +
+                             ` — puzzle ${v.playlistIndex + 1} / ${total}  (rating ${rating})`;
+    });
+  }
+
+  fetch(chrome.runtime.getURL('rl_puzzles.json'))
+    .then(r => r.json())
+    .then(ids => {
+      chrome.storage.local.get({ playlistItems: [] }, v => {
+        if (!v.playlistItems.length) chrome.storage.local.set({ playlistItems: ids });
+        updateUI();
+      });
+    })
+    .catch(() => { statusEl.textContent = 'Puzzle list not loaded'; });
+
+  document.getElementById('pl-start').addEventListener('click', () => {
+    chrome.storage.local.get({ playlistItems: [], playlistIndex: 0 }, v => {
+      if (!v.playlistItems.length) return;
+      chrome.storage.local.set({ playlistActive: true }, updateUI);
+      chrome.tabs.query({ active: true, currentWindow: true }, tabs => {
+        if (tabs[0]) chrome.tabs.update(tabs[0].id, {
+          url: 'https://lichess.org/training/' + v.playlistItems[v.playlistIndex][0],
+        });
+      });
+    });
+  });
+
+  document.getElementById('pl-stop').addEventListener('click', () => {
+    chrome.storage.local.set({ playlistActive: false }, updateUI);
+  });
+
+  document.getElementById('pl-restart').addEventListener('click', () => {
+    chrome.storage.local.get({ playlistItems: [], playlistActive: false }, v => {
+      if (!v.playlistItems.length) return;
+      chrome.storage.local.set({ playlistIndex: 0 }, updateUI);
+      if (v.playlistActive) {
+        chrome.tabs.query({ active: true, currentWindow: true }, tabs => {
+          if (tabs[0]) chrome.tabs.update(tabs[0].id, {
+            url: 'https://lichess.org/training/' + v.playlistItems[0][0],
+          });
+        });
+      }
+    });
+  });
+})();

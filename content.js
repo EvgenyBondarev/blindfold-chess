@@ -33,6 +33,7 @@
   };
   const SETTING_DEFAULTS = {
     moveNarration: true, drawNarration: true, puzzleSounds: true, seqInput: true,
+    castleKeys: { kingside: '', queenside: '' },
     ...HOMEROW_KEYS,
   };
   let settings = { ...SETTING_DEFAULTS };
@@ -40,7 +41,19 @@
     settings = vals;
     applyKeyLayout(vals.pieceKeys, vals.fileKeys, vals.rankKeys);
   });
+  chrome.storage.local.get({ playlistActive: false, playlistItems: [], playlistIndex: 0 }, vals => {
+    playlistActive = vals.playlistActive;
+    playlistItems  = vals.playlistItems;
+    playlistIndex  = vals.playlistIndex;
+  });
+
   chrome.storage.onChanged.addListener((changes, area) => {
+    if (area === 'local') {
+      if ('playlistActive' in changes) playlistActive = changes.playlistActive.newValue;
+      if ('playlistItems'  in changes) playlistItems  = changes.playlistItems.newValue;
+      if ('playlistIndex'  in changes) playlistIndex  = changes.playlistIndex.newValue;
+      return;
+    }
     if (area !== 'sync') return;
     let layoutChanged = false;
     for (const [k, { newValue }] of Object.entries(changes)) {
@@ -70,6 +83,12 @@
   let seqBranches      = [];    // active variation branches (each is a string[] of 3-char tokens)
   let seqStep          = 0;     // number of player moves submitted so far in the sequence
   let seqBranchMode    = false; // true when multiple lines were entered (opponent-move matching)
+  let castleBuffer     = '';
+  let castleTimer      = null;
+  let playlistActive       = false;
+  let playlistItems        = [];  // [[id, rating], ...]
+  let playlistIndex        = 0;
+  let playlistPuzzleSolved = false; // survives URL changes; reset only when we advance
 
   // ── Messaging helper ────────────────────────────────────────────────────────
   function send(msg) {
@@ -161,13 +180,18 @@
     // Quick check at 500 ms: lichess shows win feedback almost immediately after the
     // final correct move. Catching it here lets us set puzzleComplete before the
     // solution replay begins and starts announcing those moves.
+    const markWon = () => {
+      puzzleComplete = true; seqBranches = []; playSuccessTone();
+      if (playlistActive && playlistItems.length) {
+        const m = location.pathname.match(/\/training\/([A-Za-z0-9]+)/);
+        if (m && m[1] === playlistItems[playlistIndex]?.[0]) playlistPuzzleSolved = true;
+      }
+    };
     const quickTimer = setTimeout(() => {
       if (!waitingForOpponent) return;
       if (isPuzzleWon()) {
         waitingForOpponent = false;
-        puzzleComplete = true;
-        seqBranches = [];
-        playSuccessTone();
+        markWon();
         clearTimeout(puzzleTimeout);
       }
     }, 500);
@@ -175,7 +199,7 @@
       clearTimeout(quickTimer);
       if (!waitingForOpponent) return;
       waitingForOpponent = false;
-      if (isPuzzleWon()) { puzzleComplete = true; seqBranches = []; playSuccessTone(); }
+      if (isPuzzleWon()) { markWon(); }
       else               { seqBranches = []; playFailureTone(); if (settings.moveNarration) speak('wrong'); }
     }, 1500);
   }
@@ -208,17 +232,22 @@
     if (s2.length < 2) return null;
     const dest = s2.slice(-2);
     const file = dest[0];
-    const rank = parseInt(dest[1]);
-    if (!/^[a-h]$/.test(file) || isNaN(rank) || rank < 1 || rank > 8) return null;
+    if (!/^[a-h*]$/.test(file)) return null;
+    const rankStr = dest[1];
+    if (rankStr === '*') return { piece, file, rank: '*' };
+    const rank = parseInt(rankStr);
+    if (isNaN(rank) || rank < 1 || rank > 8) return null;
     return { piece, file, rank };
   }
 
   function movesMatch(predicted, actual) {
     if (predicted === '*') return true;
     if (Array.isArray(predicted)) return predicted.some(p => movesMatch(p, actual));
-    if (predicted.piece !== actual.piece || predicted.file !== actual.file) return false;
+    if (predicted.piece !== actual.piece) return false;
+    if (predicted.file !== '*' && predicted.file !== actual.file) return false;
     // null rank = castle (color unknown at prediction time): match by piece+file only
     if (predicted.rank === null || actual.rank === null) return true;
+    if (predicted.rank === '*') return true;
     return predicted.rank === actual.rank;
   }
 
@@ -478,7 +507,7 @@
     const piece = PIECE_FROM_KEY[keys[0]];
     if (!piece) return '';
     let out = PIECE_LETTER[piece];
-    if (keys.length >= 2) { const f = FILE_FROM_KEY[keys[1]]; if (f) out += f; }
+    if (keys.length >= 2) { const f = keys[1] === '*' ? '*' : FILE_FROM_KEY[keys[1]]; if (f) out += f; }
     return out;
   }
 
@@ -573,7 +602,7 @@
 
       // Validate key for position in group
       const isFirst = seqBuffer.length === 0;
-      if (!(isFirst ? PIECE_KEYS : FILE_RANK_KEYS).has(ev.key)) return;
+      if (!(isFirst ? PIECE_KEYS : FILE_RANK_KEYS).has(ev.key) && !(seqBuffer.length > 0 && ev.key === '*')) return;
       ev.preventDefault();
 
       deleteTentative(ta);
@@ -584,8 +613,8 @@
         insertAtCursor(ta, p); tentativeLen = p.length;
       } else {
         const piece = PIECE_FROM_KEY[seqBuffer[0]];
-        const file  = FILE_FROM_KEY[seqBuffer[1]];
-        const rank  = RANK_FROM_KEY[seqBuffer[2]];
+        const file  = seqBuffer[1] === '*' ? '*' : FILE_FROM_KEY[seqBuffer[1]];
+        const rank  = seqBuffer[2] === '*' ? '*' : RANK_FROM_KEY[seqBuffer[2]];
         const notation = piece && file && rank ? PIECE_LETTER[piece] + file + rank : '???';
         insertAtCursor(ta, notation + ' ');
         seqBuffer = ''; tentativeLen = 0;
@@ -685,45 +714,65 @@
     if (isTypingEl()) return;
 
     if (e.key === 'Enter' && isPuzzlePage()) {
-      const puzzleFailed = !!(
-        document.querySelector('.puzzle__feedback.fail') ||
-        document.querySelector('.puzzle__feedback--fail') ||
-        document.querySelector('[class*="feedback"][class*="fail"]')
-      );
-      if (puzzleComplete || puzzleFailed) {
-        // After solving or failing — click the appropriate feedback button
-        const feedbackBtns = [
-          ...document.querySelectorAll('.puzzle__feedback a, .puzzle__feedback button'),
-        ];
-        if (feedbackBtns.length) {
-          const btn = feedbackBtns.find(b =>
-            !/(practice|computer|again)/i.test(b.textContent + (b.getAttribute('href') || ''))
-          ) || feedbackBtns[0];
-          if (btn) { e.preventDefault(); btn.click(); }
+      if (playlistActive && playlistItems.length) {
+        e.preventDefault(); e.stopPropagation();
+        if (playlistPuzzleSolved) {
+          playlistPuzzleSolved = false;
+          const next = (playlistIndex + 1) % playlistItems.length;
+          chrome.storage.local.set({ playlistIndex: next }, () => {
+            window.location.href = 'https://lichess.org/training/' + playlistItems[next][0];
+          });
+        } else {
+          const m = location.pathname.match(/\/training\/([A-Za-z0-9]+)/);
+          if (!m || m[1] !== playlistItems[playlistIndex]?.[0]) {
+            window.location.href = 'https://lichess.org/training/' + playlistItems[playlistIndex][0];
+          }
         }
         return;
       }
-      // Puzzle active — open sequence input if enabled, else let lichess handle Enter
-      if (settings.seqInput) { e.preventDefault(); showSeqOverlay(); }
+      const feedbackBtns = [
+        ...document.querySelectorAll('.puzzle__feedback a, .puzzle__feedback button'),
+      ];
+      if (feedbackBtns.length) {
+        const btn = feedbackBtns.find(b =>
+          !/(practice|computer|again)/i.test(b.textContent + (b.getAttribute('href') || ''))
+        ) || feedbackBtns[0];
+        if (btn) { e.preventDefault(); e.stopPropagation(); btn.click(); return; }
+      }
+      return;
+    }
+
+    if (e.key === 'i' && isPuzzlePage() && settings.seqInput) {
+      e.preventDefault(); e.stopPropagation();
+      showSeqOverlay();
+      return;
+    }
+
+    if (e.key === 'q') {
+      e.preventDefault(); e.stopPropagation();
+      const next = !settings.seqInput;
+      settings.seqInput = next;
+      chrome.storage.sync.set({ seqInput: next });
+      speak('sequence ' + (next ? 'on' : 'off'));
       return;
     }
 
     if (e.key === 'g') {
-      e.preventDefault();
+      e.preventDefault(); e.stopPropagation();
       moveBuffer = ''; pendingDisambig = null; queuedKey = null;
       navKey('ArrowLeft');
       return;
     }
 
     if (e.key === 'h') {
-      e.preventDefault();
+      e.preventDefault(); e.stopPropagation();
       moveBuffer = ''; pendingDisambig = null; queuedKey = null;
       navKey('ArrowRight');
       return;
     }
 
     if (e.key === 'm') {
-      e.preventDefault();
+      e.preventDefault(); e.stopPropagation();
       if (drawTimer) { clearTimeout(drawTimer); drawTimer = null; }
       mode = mode === 'moves' ? 'draw' : 'moves';
       moveBuffer = ''; drawBuffer = ''; pendingDisambig = null; queuedKey = null;
@@ -732,7 +781,7 @@
     }
 
     if (e.key === 'c') {
-      e.preventDefault();
+      e.preventDefault(); e.stopPropagation();
       if (drawTimer) { clearTimeout(drawTimer); drawTimer = null; }
       drawBuffer = '';
       send({ type: 'CLEAR_DRAWINGS' });
@@ -740,11 +789,45 @@
       return;
     }
 
+    // Custom castle shortcuts — single keys configured in the popup for custom layout
+    const cks = settings.castleKeys;
+    if (cks) {
+      const ck = e.key.toLowerCase();
+      if (cks.kingside && ck === cks.kingside) {
+        e.preventDefault(); e.stopPropagation();
+        executeMove('king', 'g', playerColor === 'white' ? 1 : 8, null, null);
+        return;
+      }
+      if (cks.queenside && ck === cks.queenside) {
+        e.preventDefault(); e.stopPropagation();
+        executeMove('king', 'c', playerColor === 'white' ? 1 : 8, null, null);
+        return;
+      }
+    }
+
+    // oo/ooo castling — only when 'o' is not assigned to any piece, file, or rank key
+    if ((e.key === 'o' || e.key === 'O') && !PIECE_KEYS.has('o') && !FILE_RANK_KEYS.has('o')) {
+      e.preventDefault(); e.stopPropagation();
+      clearTimeout(castleTimer);
+      castleBuffer += 'o';
+      if (castleBuffer.length === 3) {
+        castleBuffer = '';
+        executeMove('king', 'c', playerColor === 'white' ? 1 : 8, null, null);
+        return;
+      }
+      castleTimer = setTimeout(() => {
+        if (castleBuffer.length >= 2) executeMove('king', 'g', playerColor === 'white' ? 1 : 8, null, null);
+        castleBuffer = '';
+      }, 500);
+      return;
+    }
+    if (castleBuffer.length > 0) { clearTimeout(castleTimer); castleBuffer = ''; }
+
     if (mode === 'moves') {
       // Disambiguation first — even if busy, this path leads straight to executeMove
       if (pendingDisambig) {
         if (!FILE_RANK_KEYS.has(e.key)) return;
-        e.preventDefault();
+        e.preventDefault(); e.stopPropagation();
         const { piece, file, rank, candidates } = pendingDisambig;
         pendingDisambig = null;
         queuedKey = null;
@@ -753,15 +836,14 @@
       }
 
       if (busy) {
-        // Buffer one key while the current move resolves — may be the disambiguation key
-        if (FILE_RANK_KEYS.has(e.key)) { queuedKey = e.key; e.preventDefault(); }
+        if (FILE_RANK_KEYS.has(e.key)) { queuedKey = e.key; e.preventDefault(); e.stopPropagation(); }
         return;
       }
       queuedKey = null;
 
       const valid = moveBuffer.length === 0 ? PIECE_KEYS : FILE_RANK_KEYS;
       if (!valid.has(e.key)) return;
-      e.preventDefault();
+      e.preventDefault(); e.stopPropagation();
 
       moveBuffer += e.key;
       if (moveBuffer.length === 3) {
@@ -774,7 +856,7 @@
 
     } else {
       if (!FILE_RANK_KEYS.has(e.key)) return;
-      e.preventDefault();
+      e.preventDefault(); e.stopPropagation();
 
       drawBuffer += e.key;
 
@@ -908,6 +990,13 @@
 
   async function onGameStart() {
     if (gameActive) return;
+    if (playlistActive && playlistItems.length && isPuzzlePage()) {
+      const [expectedId, rating] = playlistItems[playlistIndex];
+      const m = location.pathname.match(/\/training\/([A-Za-z0-9]+)/);
+      if (m && m[1] === expectedId) {
+        speak(`puzzle ${playlistIndex + 1} of ${playlistItems.length}, rating ${rating}`);
+      }
+    }
     gameActive = true;
     const state = await send({ type: 'GET_STATE' });
     playerColor = state.orientation || 'white';
@@ -932,6 +1021,7 @@
       lastUrl = location.href; gameActive = false; moveBuffer = ''; drawBuffer = '';
       lastMoveText = ''; waitingForOpponent = false; clearTimeout(puzzleTimeout);
       puzzleComplete = false; seqBranches = [];
+      busy = false; pendingDisambig = null; queuedKey = null;
       if (moveObserver) { moveObserver.disconnect(); moveObserver = null; }
       setTimeout(() => { if (hasBoard()) onGameStart(); }, 1200);
     } else {
