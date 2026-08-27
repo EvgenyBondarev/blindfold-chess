@@ -150,7 +150,7 @@
       if (!waitingForOpponent) return;
       waitingForOpponent = false;
       if (isPuzzleWon()) { puzzleComplete = true; playSuccessTone(); }
-      else               { playFailureTone(); speak('wrong'); }
+      else               { playFailureTone(); if (settings.moveNarration) speak('wrong'); }
     }, 1500);
   }
 
