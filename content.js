@@ -415,16 +415,12 @@
   function getSeqOverlay() {
     if (seqOverlay && document.body.contains(seqOverlay)) return seqOverlay;
 
-    const overlay = document.createElement('div');
-    overlay.style.cssText =
-      'position:fixed;inset:0;background:rgba(0,0,0,.65);display:none;' +
-      'align-items:flex-start;justify-content:center;padding-top:80px;' +
-      'z-index:999999;font-family:system-ui,sans-serif;';
-
-    const box = document.createElement('div');
-    box.style.cssText =
+    const panel = document.createElement('div');
+    panel.style.cssText =
+      'position:fixed;right:16px;bottom:16px;width:340px;' +
       'background:#1a1a2e;border:1px solid #444;border-radius:8px;' +
-      'padding:16px;width:400px;box-shadow:0 8px 32px rgba(0,0,0,.6);';
+      'padding:14px;box-shadow:0 4px 20px rgba(0,0,0,.5);' +
+      'z-index:999999;font-family:system-ui,sans-serif;display:none;';
 
     const label = document.createElement('div');
     label.style.cssText = 'color:#888;font-size:11px;text-transform:uppercase;' +
@@ -435,12 +431,11 @@
     ta.id = 'bc-seq-ta';
     ta.rows = 4;
     ta.placeholder =
-      'One line = simple sequence (your moves):\n' +
+      'One line — your moves only:\n' +
       '  fjf skl fjj\n\n' +
-      'Multiple lines = branches (your move, opp prediction, your move…):\n' +
+      'Multiple lines — include opp predictions:\n' +
       '  fjf jkl skl\n' +
-      '  fjf fkl dkd\n' +
-      'Use * as wildcard for any opponent move.';
+      '  fjf fkl dkd  (* = any opp move)';
     ta.spellcheck = false;
     ta.autocomplete = 'off';
     ta.style.cssText =
@@ -450,13 +445,11 @@
 
     const status = document.createElement('div');
     status.id = 'bc-seq-status';
-    status.style.cssText = 'font-size:12px;margin-top:8px;min-height:16px;color:#58a6ff;';
+    status.style.cssText = 'font-size:12px;margin-top:8px;min-height:14px;color:#58a6ff;';
 
-    box.append(label, ta, status);
-    overlay.appendChild(box);
-    document.body.appendChild(overlay);
+    panel.append(label, ta, status);
+    document.body.appendChild(panel);
 
-    overlay.addEventListener('click', ev => { if (ev.target === overlay) hideSeqOverlay(); });
     ta.addEventListener('keydown', ev => {
       ev.stopPropagation();
       if (ev.key === 'Escape') { hideSeqOverlay(); return; }
@@ -466,16 +459,16 @@
       }
     });
 
-    seqOverlay = overlay;
-    return overlay;
+    seqOverlay = panel;
+    return panel;
   }
 
   function showSeqOverlay() {
-    const overlay = getSeqOverlay();
-    overlay.style.display = 'flex';
-    const ta = overlay.querySelector('#bc-seq-ta');
+    const panel = getSeqOverlay();
+    panel.style.display = 'block';
+    const ta = panel.querySelector('#bc-seq-ta');
     ta.value = '';
-    overlay.querySelector('#bc-seq-status').textContent = '';
+    panel.querySelector('#bc-seq-status').textContent = '';
     setTimeout(() => ta.focus(), 0);
   }
 
