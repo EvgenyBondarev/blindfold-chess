@@ -167,54 +167,61 @@
   }
 
   // ── Sequence management ─────────────────────────────────────────────────────
-  // Converts a SAN string to the 3-key token the user would type for that move.
-  // Used to match the observed opponent move against the user's predictions.
-  function sanToKey(san) {
-    if (!san) return null;
-    san = san.trim().replace(/[+#!?x]/g, '');
-    const PK = { N: 'j', B: 'k', R: 'd', Q: 'l', K: 's' };
-    const FK = { a: 'a', b: 's', c: 'd', d: 'f', e: 'j', f: 'k', g: 'l', h: ';' };
-    const RK = { 1: 'a', 2: 's', 3: 'd', 4: 'f', 5: 'j', 6: 'k', 7: 'l', 8: ';' };
-    if (san === 'OO')   return 'sla'; // O-O  (x stripped)
-    if (san === 'OOO')  return 'sda'; // O-O-O
-    let s = san;
-    let pk = 'f';
-    if (s[0] && PK[s[0]]) { pk = PK[s[0]]; s = s.slice(1); }
-    const pi = s.indexOf('=');
-    if (pi !== -1) s = s.slice(0, pi);
-    const dest = s.slice(-2);
-    const fk = FK[dest[0]], rk = RK[parseInt(dest[1])];
-    return (fk && rk) ? pk + fk + rk : null;
+  const PIECE_LETTER = { king: 'K', queen: 'Q', rook: 'R', bishop: 'B', knight: 'N', pawn: '' };
+
+  // Parse algebraic notation (SAN or user-typed) into {piece, file, rank}.
+  // Returns null on failure. rank is null for castle moves (unknown color at parse time).
+  function algebraicToMove(s) {
+    if (!s) return null;
+    s = s.trim().replace(/[+#!?]/g, '');
+    if (!s) return null;
+    const PN = { N: 'knight', B: 'bishop', R: 'rook', Q: 'queen', K: 'king' };
+    if (/^O-O-O|^0-0-0/.test(s)) return { piece: 'king', file: 'c', rank: null };
+    if (/^O-O|^0-0/.test(s))     return { piece: 'king', file: 'g', rank: null };
+    let s2 = s.replace('x', '');
+    let piece = 'pawn';
+    if (s2[0] && PN[s2[0]]) { piece = PN[s2[0]]; s2 = s2.slice(1); }
+    const pi = s2.indexOf('=');
+    if (pi !== -1) s2 = s2.slice(0, pi);
+    if (s2.length < 2) return null;
+    const dest = s2.slice(-2);
+    const file = dest[0];
+    const rank = parseInt(dest[1]);
+    if (!/^[a-h]$/.test(file) || isNaN(rank) || rank < 1 || rank > 8) return null;
+    return { piece, file, rank };
+  }
+
+  function movesMatch(predicted, actual) {
+    if (predicted === '*') return true;
+    if (predicted.piece !== actual.piece || predicted.file !== actual.file) return false;
+    // null rank = castle (color unknown at prediction time): match by piece+file only
+    if (predicted.rank === null || actual.rank === null) return true;
+    return predicted.rank === actual.rank;
   }
 
   function advanceSequence(oppSAN) {
     if (!seqBranches.length) return;
 
     if (seqBranchMode) {
-      // Opponent positions in each branch: index 1, 3, 5... = seqStep*2 - 1
       const oppIdx = seqStep * 2 - 1;
-      const actual = sanToKey(oppSAN);
-      seqBranches = seqBranches.filter(b =>
-        b.length > oppIdx && (b[oppIdx] === actual || b[oppIdx] === '*')
-      );
+      const actual = algebraicToMove(oppSAN);
+      if (actual) {
+        seqBranches = seqBranches.filter(b => b.length > oppIdx && movesMatch(b[oppIdx], actual));
+      }
       if (!seqBranches.length) {
         if (settings.moveNarration) speak('no matching branch');
         return;
       }
     }
 
-    // Next player move: in branch mode index seqStep*2, in simple mode index seqStep
     const playerIdx = seqBranchMode ? seqStep * 2 : seqStep;
-    const token = seqBranches[0]?.[playerIdx];
-    if (!token) { seqBranches = []; return; } // sequence complete
+    const move = seqBranches[0]?.[playerIdx];
+    if (!move || move === '*') { seqBranches = []; return; }
 
-    const piece = PIECE_FROM_KEY[token[0]];
-    const file  = FILE_FROM_KEY[token[1]];
-    const rank  = RANK_FROM_KEY[token[2]];
-    if (!piece || !file || !rank) { seqBranches = []; return; }
-
+    // Resolve castle rank from playerColor if not yet known
+    const rank = move.rank ?? (playerColor === 'white' ? 1 : 8);
     seqStep++;
-    setTimeout(() => executeMove(piece, file, rank, null, null), 400);
+    setTimeout(() => executeMove(move.piece, move.file, rank, null, null), 400);
   }
 
   // ── Puzzle navigation helpers ────────────────────────────────────────────────
@@ -410,14 +417,54 @@
   }
 
   // ── Sequence input overlay ───────────────────────────────────────────────────
-  let seqOverlay = null;
+  let seqOverlay   = null;
+  let seqBuffer    = '';  // raw keys typed for the current token (0–2 chars)
+  let tentativeLen = 0;   // chars currently in the textarea as tentative notation
+
+  function insertAtCursor(ta, text) {
+    const s = ta.selectionStart;
+    ta.value = ta.value.slice(0, s) + text + ta.value.slice(ta.selectionEnd);
+    ta.selectionStart = ta.selectionEnd = s + text.length;
+  }
+
+  function deleteTentative(ta) {
+    if (!tentativeLen) return;
+    const s = ta.selectionStart;
+    ta.value = ta.value.slice(0, s - tentativeLen) + ta.value.slice(s);
+    ta.selectionStart = ta.selectionEnd = s - tentativeLen;
+    tentativeLen = 0;
+  }
+
+  function deleteLastToken(ta) {
+    const pos = ta.selectionStart;
+    if (!pos) return;
+    let s = pos;
+    if (ta.value[s - 1] === ' ')  s--;           // skip trailing space
+    if (s > 0 && ta.value[s - 1] === '\n') {     // at start of line — delete newline
+      ta.value = ta.value.slice(0, s - 1) + ta.value.slice(pos);
+      ta.selectionStart = ta.selectionEnd = s - 1;
+      return;
+    }
+    while (s > 0 && ta.value[s - 1] !== ' ' && ta.value[s - 1] !== '\n') s--;
+    ta.value = ta.value.slice(0, s) + ta.value.slice(pos);
+    ta.selectionStart = ta.selectionEnd = s;
+  }
+
+  // Returns the partial algebraic display for 1 or 2 typed keys
+  function partialNotation(keys) {
+    const piece = PIECE_FROM_KEY[keys[0]];
+    if (!piece) return '';
+    let out = PIECE_LETTER[piece];
+    if (keys.length >= 2) { const f = FILE_FROM_KEY[keys[1]]; if (f) out += f; }
+    return out;
+  }
 
   function getSeqOverlay() {
     if (seqOverlay && document.body.contains(seqOverlay)) return seqOverlay;
 
     const panel = document.createElement('div');
     panel.style.cssText =
-      'position:fixed;right:16px;bottom:16px;width:340px;' +
+      'position:fixed;right:16px;bottom:16px;width:300px;' +
       'background:#1a1a2e;border:1px solid #444;border-radius:8px;' +
       'padding:14px;box-shadow:0 4px 20px rgba(0,0,0,.5);' +
       'z-index:999999;font-family:system-ui,sans-serif;display:none;';
@@ -425,23 +472,21 @@
     const label = document.createElement('div');
     label.style.cssText = 'color:#888;font-size:11px;text-transform:uppercase;' +
                           'letter-spacing:.05em;margin-bottom:8px;';
-    label.textContent = 'Move sequence — Enter to submit · Esc to cancel';
+    label.textContent = 'Sequence — Enter · Shift+Enter new line · Esc cancel';
 
     const ta = document.createElement('textarea');
     ta.id = 'bc-seq-ta';
-    ta.rows = 4;
+    ta.rows = 3;
     ta.placeholder =
-      'One line — your moves only:\n' +
-      '  fjf skl fjj\n\n' +
-      'Multiple lines — include opp predictions:\n' +
-      '  fjf jkl skl\n' +
-      '  fjf fkl dkd  (* = any opp move)';
+      'One line: your moves only\n' +
+      'Multiple lines: include opp moves\n' +
+      '  Ne5 d5 Nf3\n  Ne5 e6 Bc4\n(* = any opp move)';
     ta.spellcheck = false;
     ta.autocomplete = 'off';
     ta.style.cssText =
       'width:100%;background:#0d1117;border:1px solid #555;border-radius:4px;' +
       'color:#e0e0e0;font-size:13px;font-family:monospace;padding:8px 10px;' +
-      'outline:none;box-sizing:border-box;resize:vertical;line-height:1.5;';
+      'outline:none;box-sizing:border-box;resize:vertical;line-height:1.6;';
 
     const status = document.createElement('div');
     status.id = 'bc-seq-status';
@@ -452,10 +497,63 @@
 
     ta.addEventListener('keydown', ev => {
       ev.stopPropagation();
-      if (ev.key === 'Escape') { hideSeqOverlay(); return; }
-      if (ev.key === 'Enter' && !ev.shiftKey) {
+
+      if (ev.key === 'Escape') {
+        deleteTentative(ta); seqBuffer = '';
+        hideSeqOverlay(); return;
+      }
+
+      if (ev.key === 'Enter' && ev.shiftKey) {
         ev.preventDefault();
-        submitSeq(ta.value, status);
+        deleteTentative(ta); seqBuffer = '';
+        insertAtCursor(ta, '\n');
+        return;
+      }
+
+      if (ev.key === 'Enter') {
+        ev.preventDefault();
+        deleteTentative(ta); seqBuffer = '';
+        submitSeq(ta.value, status); return;
+      }
+
+      if (ev.key === 'Backspace') {
+        ev.preventDefault();
+        if (seqBuffer.length) {
+          seqBuffer = seqBuffer.slice(0, -1);
+          deleteTentative(ta);
+          if (seqBuffer.length) {
+            const p = partialNotation(seqBuffer);
+            insertAtCursor(ta, p); tentativeLen = p.length;
+          }
+        } else {
+          deleteLastToken(ta);
+        }
+        return;
+      }
+
+      if (ev.key === '*' && !seqBuffer.length) {
+        ev.preventDefault();
+        insertAtCursor(ta, '* '); return;
+      }
+
+      // Validate key for position in group
+      const isFirst = seqBuffer.length === 0;
+      if (!(isFirst ? PIECE_KEYS : FILE_RANK_KEYS).has(ev.key)) return;
+      ev.preventDefault();
+
+      deleteTentative(ta);
+      seqBuffer += ev.key;
+
+      if (seqBuffer.length < 3) {
+        const p = partialNotation(seqBuffer);
+        insertAtCursor(ta, p); tentativeLen = p.length;
+      } else {
+        const piece = PIECE_FROM_KEY[seqBuffer[0]];
+        const file  = FILE_FROM_KEY[seqBuffer[1]];
+        const rank  = RANK_FROM_KEY[seqBuffer[2]];
+        const notation = piece && file && rank ? PIECE_LETTER[piece] + file + rank : '???';
+        insertAtCursor(ta, notation + ' ');
+        seqBuffer = ''; tentativeLen = 0;
       }
     });
 
@@ -466,6 +564,7 @@
   function showSeqOverlay() {
     const panel = getSeqOverlay();
     panel.style.display = 'block';
+    seqBuffer = ''; tentativeLen = 0;
     const ta = panel.querySelector('#bc-seq-ta');
     ta.value = '';
     panel.querySelector('#bc-seq-status').textContent = '';
@@ -477,42 +576,48 @@
   }
 
   function submitSeq(raw, statusEl) {
-    const lines = raw.split('\n').map(l => l.trim()).filter(Boolean);
+    const lines = raw.trim().split('\n').map(l => l.trim()).filter(Boolean);
     if (!lines.length) return;
 
-    const branches = lines.map(l => l.split(/\s+/).filter(Boolean));
-
-    // Validate every token is exactly 3 chars and maps to known keys
-    for (const b of branches) {
-      for (const tok of b) {
-        if (tok !== '*' && (tok.length !== 3 ||
-            !PIECE_FROM_KEY[tok[0]] || !FILE_FROM_KEY[tok[1]] || !RANK_FROM_KEY[tok[2]])) {
+    const branches = [];
+    for (let li = 0; li < lines.length; li++) {
+      const toks = lines[li].split(/\s+/).filter(Boolean);
+      const moves = [];
+      for (const tok of toks) {
+        if (tok === '*') { moves.push('*'); continue; }
+        const m = algebraicToMove(tok);
+        if (!m) {
           statusEl.style.color = '#f85149';
-          statusEl.textContent = `Invalid token: "${tok}"`;
+          statusEl.textContent = `Invalid move "${tok}" on line ${li + 1}`;
+          return;
+        }
+        moves.push(m);
+      }
+      branches.push(moves);
+    }
+
+    if (!branches[0]?.length) return;
+    const first = branches[0][0];
+    if (first === '*') { statusEl.style.color = '#f85149'; statusEl.textContent = 'First move cannot be *'; return; }
+
+    const isMulti = branches.length > 1;
+    if (isMulti) {
+      for (const b of branches) {
+        const f = b[0];
+        if (f === '*' || f.piece !== first.piece || f.file !== first.file || f.rank !== first.rank) {
+          statusEl.style.color = '#f85149';
+          statusEl.textContent = 'All lines must share the same first move';
           return;
         }
       }
     }
 
-    const isMulti = branches.length > 1;
-    // In multi-line mode all branches must share the same first player move
-    if (isMulti && branches.some(b => b[0] !== branches[0][0])) {
-      statusEl.style.color = '#f85149';
-      statusEl.textContent = 'All lines must start with the same first move';
-      return;
-    }
-
-    const firstToken = branches[0][0];
-    const piece = PIECE_FROM_KEY[firstToken[0]];
-    const file  = FILE_FROM_KEY[firstToken[1]];
-    const rank  = RANK_FROM_KEY[firstToken[2]];
-
+    const rank = first.rank ?? (playerColor === 'white' ? 1 : 8);
     seqBranches   = branches;
     seqBranchMode = isMulti;
-    seqStep       = 1; // first move is about to be submitted
-
+    seqStep       = 1;
     hideSeqOverlay();
-    setTimeout(() => executeMove(piece, file, rank, null, null), 50);
+    setTimeout(() => executeMove(first.piece, first.file, rank, null, null), 50);
   }
 
   // ── Keyboard handling ───────────────────────────────────────────────────────
