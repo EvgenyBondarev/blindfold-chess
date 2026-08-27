@@ -17,6 +17,17 @@
   const FILE_TO_NUM = { a: 1, b: 2, c: 3, d: 4, e: 5, f: 6, g: 7, h: 8 };
   const NUM_TO_FILE = { 1: 'a', 2: 'b', 3: 'c', 4: 'd', 5: 'e', 6: 'f', 7: 'g', 8: 'h' };
 
+  // ── Settings ────────────────────────────────────────────────────────────────
+  const SETTING_DEFAULTS = { moveNarration: true, drawNarration: true, puzzleSounds: true };
+  let settings = { ...SETTING_DEFAULTS };
+  chrome.storage.sync.get(SETTING_DEFAULTS, vals => { settings = vals; });
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area !== 'sync') return;
+    for (const [k, { newValue }] of Object.entries(changes)) {
+      if (k in settings) settings[k] = newValue;
+    }
+  });
+
   // ── State ───────────────────────────────────────────────────────────────────
   let mode             = 'moves';
   let moveBuffer       = '';
@@ -107,8 +118,8 @@
     } catch (e) {}
   }
 
-  function playSuccessTone() { playTone([[523, 0], [659, 0.12], [784, 0.24]], 0.25); }
-  function playFailureTone() { playTone([[330, 0], [220, 0.15]], 0.3, 'sawtooth'); }
+  function playSuccessTone() { if (settings.puzzleSounds) playTone([[523, 0], [659, 0.12], [784, 0.24]], 0.25); }
+  function playFailureTone() { if (settings.puzzleSounds) playTone([[330, 0], [220, 0.15]], 0.3, 'sawtooth'); }
 
   function isPuzzleWon() {
     return !!(
@@ -196,7 +207,7 @@
     await new Promise(r => setTimeout(r, 150));
     navigating = false;
 
-    if (firstMoveSAN) speak(readSAN(firstMoveSAN));
+    if (firstMoveSAN && settings.moveNarration) speak(readSAN(firstMoveSAN));
   }
 
   // ── Pseudo-legal move check ─────────────────────────────────────────────────
@@ -325,7 +336,7 @@
       const src = candidates[0];
       myMoveJustMade = true;
       startPuzzleWait(); // must be before await so onOpponentMoved() can fire during the send
-      speak(pieceType + ' ' + dstFile + ' ' + dstRank);
+      if (settings.moveNarration) speak(pieceType + ' ' + dstFile + ' ' + dstRank);
 
       const isPromotion = pieceType === 'pawn' &&
         ((playerColor === 'white' && dstRank === 8) ||
@@ -438,7 +449,10 @@
       if (drawBuffer.length === 2) {
         drawTimer = setTimeout(() => {
           const f = FILE_FROM_KEY[drawBuffer[0]], r = RANK_FROM_KEY[drawBuffer[1]];
-          if (f && r) { speak(f + ' ' + r); send({ type: 'DRAW_HIGHLIGHT', file: f, rank: r }); }
+          if (f && r) {
+            if (settings.drawNarration) speak(f + ' ' + r);
+            send({ type: 'DRAW_HIGHLIGHT', file: f, rank: r });
+          }
           drawBuffer = ''; drawTimer = null;
         }, 1200);
       }
@@ -448,7 +462,7 @@
         const f1 = FILE_FROM_KEY[drawBuffer[0]], r1 = RANK_FROM_KEY[drawBuffer[1]];
         const f2 = FILE_FROM_KEY[drawBuffer[2]], r2 = RANK_FROM_KEY[drawBuffer[3]];
         if (f1 && r1 && f2 && r2) {
-          speak('arrow ' + f1+r1 + ' to ' + f2+r2);
+          if (settings.drawNarration) speak('arrow ' + f1+r1 + ' to ' + f2+r2);
           send({ type: 'DRAW_ARROW', f1, r1, f2, r2 });
         }
         drawBuffer = '';
@@ -492,10 +506,10 @@
       if (navigating || puzzleComplete) return;  // swallow during rewind / post-solve replay
       if (navKeyPressed) {
         navKeyPressed = false;
-        speak(readSAN(san));
+        if (settings.moveNarration) speak(readSAN(san));
       } else {
         onOpponentMoved();
-        speakQueued(readSAN(san));
+        if (settings.moveNarration) speakQueued(readSAN(san));
       }
     }
 

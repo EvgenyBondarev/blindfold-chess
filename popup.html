@@ -29,6 +29,8 @@
     .sep { color: #555; }
     .note { font-size: 11px; color: #888; margin-top: 8px; line-height: 1.4; }
     hr { border: none; border-top: 1px solid #333; margin: 8px 0; }
+    label { cursor: pointer; display: flex; align-items: center; gap: 7px; }
+    input[type="checkbox"] { accent-color: #58a6ff; cursor: pointer; width: 14px; height: 14px; }
   </style>
 </head>
 <body>
@@ -47,18 +49,14 @@
 
   <div class="section">
     <div class="section-title">Files</div>
-    <div class="row">
-      <kbd>a</kbd>=a <kbd>s</kbd>=b <kbd>d</kbd>=c <kbd>f</kbd>=d
-      <kbd>j</kbd>=e <kbd>k</kbd>=f <kbd>l</kbd>=g <kbd>;</kbd>=h
-    </div>
+    <div class="row"><kbd>a</kbd>=a <kbd>s</kbd>=b <kbd>d</kbd>=c <kbd>f</kbd>=d</div>
+    <div class="row"><kbd>j</kbd>=e <kbd>k</kbd>=f <kbd>l</kbd>=g <kbd>;</kbd>=h</div>
   </div>
 
   <div class="section">
     <div class="section-title">Ranks</div>
-    <div class="row">
-      <kbd>a</kbd>=1 <kbd>s</kbd>=2 <kbd>d</kbd>=3 <kbd>f</kbd>=4
-      <kbd>j</kbd>=5 <kbd>k</kbd>=6 <kbd>l</kbd>=7 <kbd>;</kbd>=8
-    </div>
+    <div class="row"><kbd>a</kbd>=1 <kbd>s</kbd>=2 <kbd>d</kbd>=3 <kbd>f</kbd>=4</div>
+    <div class="row"><kbd>j</kbd>=5 <kbd>k</kbd>=6 <kbd>l</kbd>=7 <kbd>;</kbd>=8</div>
   </div>
 
   <hr>
@@ -95,9 +93,20 @@
     <div class="row"><kbd>c</kbd> → clear all drawings (works in any mode)</div>
   </div>
 
+  <hr>
+
+  <div class="section">
+    <div class="section-title">Settings</div>
+    <div class="row"><label><input type="checkbox" id="moveNarration"> Move narration</label></div>
+    <div class="row"><label><input type="checkbox" id="drawNarration"> Draw narration</label></div>
+    <div class="row"><label><input type="checkbox" id="puzzleSounds"> Puzzle sounds</label></div>
+  </div>
+
   <p class="note">
     Extension activates automatically when a chess.com game board is detected.
     Opponent moves are announced aloud. Your moves are confirmed on key entry.
   </p>
+
+  <script src="popup.js"></script>
 </body>
 </html>

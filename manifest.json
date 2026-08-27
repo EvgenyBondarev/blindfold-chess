@@ -3,7 +3,7 @@
   "name": "Blindfold Chess",
   "version": "1.0",
   "description": "Play blindfold chess on chess.com and lichess.org. Keyboard-driven moves with text-to-speech narration — no board required.",
-  "permissions": ["scripting", "debugger"],
+  "permissions": ["scripting", "debugger", "storage"],
   "host_permissions": ["*://www.chess.com/*", "*://lichess.org/*"],
   "background": {
     "service_worker": "background.js"
