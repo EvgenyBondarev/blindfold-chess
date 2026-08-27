@@ -533,18 +533,25 @@
     if (isTypingEl()) return;
 
     if (e.key === 'Enter' && isPuzzlePage()) {
-      const feedbackBtns = [
-        ...document.querySelectorAll('.puzzle__feedback a, .puzzle__feedback button'),
-      ];
-      if (feedbackBtns.length) {
-        // Puzzle resolved — click the continue button
-        const btn = feedbackBtns.find(b =>
-          !/(practice|computer|again)/i.test(b.textContent + (b.getAttribute('href') || ''))
-        ) || feedbackBtns[0];
-        if (btn) { e.preventDefault(); btn.click(); }
+      const puzzleFailed = !!(
+        document.querySelector('.puzzle__feedback.fail') ||
+        document.querySelector('.puzzle__feedback--fail') ||
+        document.querySelector('[class*="feedback"][class*="fail"]')
+      );
+      if (puzzleComplete || puzzleFailed) {
+        // After solving or failing — click the appropriate feedback button
+        const feedbackBtns = [
+          ...document.querySelectorAll('.puzzle__feedback a, .puzzle__feedback button'),
+        ];
+        if (feedbackBtns.length) {
+          const btn = feedbackBtns.find(b =>
+            !/(practice|computer|again)/i.test(b.textContent + (b.getAttribute('href') || ''))
+          ) || feedbackBtns[0];
+          if (btn) { e.preventDefault(); btn.click(); }
+        }
         return;
       }
-      // Puzzle still active — open sequence input if enabled, else let lichess handle it
+      // Puzzle active — open sequence input if enabled, else let lichess handle Enter
       if (settings.seqInput) { e.preventDefault(); showSeqOverlay(); }
       return;
     }
