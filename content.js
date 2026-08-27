@@ -6,26 +6,48 @@
   _s.textContent = 'cg-board, cg-board *, chess-board, chess-board *, wc-chess-board, wc-chess-board * { cursor: default !important; }';
   (document.head || document.documentElement).appendChild(_s);
 
-  // ── Key maps ────────────────────────────────────────────────────────────────
-  const PIECE_FROM_KEY = { s: 'king', d: 'rook', f: 'pawn', j: 'knight', k: 'bishop', l: 'queen' };
-  const FILE_FROM_KEY  = { a: 'a', s: 'b', d: 'c', f: 'd', j: 'e', k: 'f', l: 'g', ';': 'h' };
-  const RANK_FROM_KEY  = { a: 1, s: 2, d: 3, f: 4, j: 5, k: 6, l: 7, ';': 8 };
+  // ── Key maps (rebuilt by applyKeyLayout when the user changes their layout) ──
+  let PIECE_FROM_KEY = { s: 'king', d: 'rook', f: 'pawn', j: 'knight', k: 'bishop', l: 'queen' };
+  let FILE_FROM_KEY  = { a: 'a', s: 'b', d: 'c', f: 'd', j: 'e', k: 'f', l: 'g', ';': 'h' };
+  let RANK_FROM_KEY  = { a: 1, s: 2, d: 3, f: 4, j: 5, k: 6, l: 7, ';': 8 };
+  let PIECE_KEYS     = new Set(Object.keys(PIECE_FROM_KEY));
+  let FILE_RANK_KEYS = new Set(Object.keys(FILE_FROM_KEY));
 
-  const PIECE_KEYS     = new Set(Object.keys(PIECE_FROM_KEY));
-  const FILE_RANK_KEYS = new Set(Object.keys(FILE_FROM_KEY));
+  function applyKeyLayout(pieceKeys, fileKeys, rankKeys) {
+    PIECE_FROM_KEY = {}; FILE_FROM_KEY = {}; RANK_FROM_KEY = {};
+    for (const [piece, key] of Object.entries(pieceKeys)) PIECE_FROM_KEY[key] = piece;
+    for (const [file,  key] of Object.entries(fileKeys))  FILE_FROM_KEY[key]  = file;
+    for (const [rank,  key] of Object.entries(rankKeys))  RANK_FROM_KEY[key]  = parseInt(rank);
+    PIECE_KEYS     = new Set(Object.keys(PIECE_FROM_KEY));
+    FILE_RANK_KEYS = new Set([...Object.keys(FILE_FROM_KEY), ...Object.keys(RANK_FROM_KEY)]);
+  }
 
   const FILE_TO_NUM = { a: 1, b: 2, c: 3, d: 4, e: 5, f: 6, g: 7, h: 8 };
   const NUM_TO_FILE = { 1: 'a', 2: 'b', 3: 'c', 4: 'd', 5: 'e', 6: 'f', 7: 'g', 8: 'h' };
 
   // ── Settings ────────────────────────────────────────────────────────────────
-  const SETTING_DEFAULTS = { moveNarration: true, drawNarration: true, puzzleSounds: true, seqInput: true };
+  const HOMEROW_KEYS = {
+    pieceKeys: { king:'s', rook:'d', pawn:'f', knight:'j', bishop:'k', queen:'l' },
+    fileKeys:  { a:'a', b:'s', c:'d', d:'f', e:'j', f:'k', g:'l', h:';' },
+    rankKeys:  { '1':'a','2':'s','3':'d','4':'f','5':'j','6':'k','7':'l','8':';' },
+  };
+  const SETTING_DEFAULTS = {
+    moveNarration: true, drawNarration: true, puzzleSounds: true, seqInput: true,
+    ...HOMEROW_KEYS,
+  };
   let settings = { ...SETTING_DEFAULTS };
-  chrome.storage.sync.get(SETTING_DEFAULTS, vals => { settings = vals; });
+  chrome.storage.sync.get(SETTING_DEFAULTS, vals => {
+    settings = vals;
+    applyKeyLayout(vals.pieceKeys, vals.fileKeys, vals.rankKeys);
+  });
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area !== 'sync') return;
+    let layoutChanged = false;
     for (const [k, { newValue }] of Object.entries(changes)) {
-      if (k in settings) settings[k] = newValue;
+      if (k in settings) { settings[k] = newValue; }
+      if (k === 'pieceKeys' || k === 'fileKeys' || k === 'rankKeys') layoutChanged = true;
     }
+    if (layoutChanged) applyKeyLayout(settings.pieceKeys, settings.fileKeys, settings.rankKeys);
   });
 
   // ── State ───────────────────────────────────────────────────────────────────

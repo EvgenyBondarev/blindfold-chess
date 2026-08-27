@@ -15,57 +15,99 @@
     h2 { font-size: 15px; margin-bottom: 10px; color: #58a6ff; }
     .section { margin-bottom: 10px; }
     .section-title { font-size: 11px; text-transform: uppercase; color: #888; margin-bottom: 4px; letter-spacing: 0.05em; }
-    .row { display: flex; align-items: center; gap: 6px; margin: 3px 0; }
-    kbd {
+    .row { display: flex; align-items: center; gap: 6px; margin: 3px 0; flex-wrap: wrap; }
+    kbd, input.ki {
       background: #2d2d2d;
       border: 1px solid #555;
       border-bottom-width: 2px;
       border-radius: 3px;
-      padding: 1px 5px;
+      padding: 1px 4px;
       font-size: 12px;
       font-family: monospace;
       color: #eee;
     }
-    .sep { color: #555; }
+    input.ki {
+      width: 22px;
+      text-align: center;
+      outline: none;
+      cursor: text;
+    }
+    input.ki:focus { border-color: #58a6ff; }
+    input.ki.err   { border-color: #f85149; }
+    .kmap { display: flex; align-items: center; gap: 3px; font-size: 12px; margin: 2px 0; }
     .note { font-size: 11px; color: #888; margin-top: 8px; line-height: 1.4; }
     hr { border: none; border-top: 1px solid #333; margin: 8px 0; }
     label { cursor: pointer; display: flex; align-items: center; gap: 7px; }
     input[type="checkbox"] { accent-color: #58a6ff; cursor: pointer; width: 14px; height: 14px; }
+    .preset-row { display: flex; gap: 6px; margin: 4px 0; }
+    .preset {
+      background: #2d2d2d; border: 1px solid #555; border-radius: 4px;
+      color: #aaa; font-size: 11px; padding: 3px 10px; cursor: pointer; flex: 1;
+    }
+    .preset:hover  { border-color: #58a6ff; color: #58a6ff; }
+    .preset.active { border-color: #58a6ff; color: #58a6ff; background: #1a2d4a; }
+    .grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px 6px; }
+    .grid4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px 6px; }
   </style>
 </head>
 <body>
   <h2>♟ Blindfold Chess</h2>
 
   <div class="section">
-    <div class="section-title">Move mode (default)</div>
-    <div class="row">Type 3 keys: <strong>piece · file · rank</strong></div>
+    <div class="section-title">Key layout</div>
+    <div class="preset-row">
+      <button class="preset" id="preset-homerow">Home row</button>
+      <button class="preset" id="preset-standard">Standard</button>
+    </div>
   </div>
 
   <div class="section">
-    <div class="section-title">Pieces</div>
-    <div class="row"><kbd>s</kbd>=king <kbd>d</kbd>=rook <kbd>f</kbd>=pawn</div>
-    <div class="row"><kbd>j</kbd>=knight <kbd>k</kbd>=bishop <kbd>l</kbd>=queen</div>
+    <div class="section-title">Pieces — type 3 keys: piece · file · rank</div>
+    <div class="grid3">
+      <div class="kmap"><input class="ki" id="pk-king">   = king</div>
+      <div class="kmap"><input class="ki" id="pk-queen">  = queen</div>
+      <div class="kmap"><input class="ki" id="pk-rook">   = rook</div>
+      <div class="kmap"><input class="ki" id="pk-bishop"> = bishop</div>
+      <div class="kmap"><input class="ki" id="pk-knight"> = knight</div>
+      <div class="kmap"><input class="ki" id="pk-pawn">   = pawn</div>
+    </div>
   </div>
 
   <div class="section">
     <div class="section-title">Files</div>
-    <div class="row"><kbd>a</kbd>=a <kbd>s</kbd>=b <kbd>d</kbd>=c <kbd>f</kbd>=d</div>
-    <div class="row"><kbd>j</kbd>=e <kbd>k</kbd>=f <kbd>l</kbd>=g <kbd>;</kbd>=h</div>
+    <div class="grid4">
+      <div class="kmap"><input class="ki" id="fk-a"> = a</div>
+      <div class="kmap"><input class="ki" id="fk-b"> = b</div>
+      <div class="kmap"><input class="ki" id="fk-c"> = c</div>
+      <div class="kmap"><input class="ki" id="fk-d"> = d</div>
+      <div class="kmap"><input class="ki" id="fk-e"> = e</div>
+      <div class="kmap"><input class="ki" id="fk-f"> = f</div>
+      <div class="kmap"><input class="ki" id="fk-g"> = g</div>
+      <div class="kmap"><input class="ki" id="fk-h"> = h</div>
+    </div>
   </div>
 
   <div class="section">
     <div class="section-title">Ranks</div>
-    <div class="row"><kbd>a</kbd>=1 <kbd>s</kbd>=2 <kbd>d</kbd>=3 <kbd>f</kbd>=4</div>
-    <div class="row"><kbd>j</kbd>=5 <kbd>k</kbd>=6 <kbd>l</kbd>=7 <kbd>;</kbd>=8</div>
+    <div class="grid4">
+      <div class="kmap"><input class="ki" id="rk-1"> = 1</div>
+      <div class="kmap"><input class="ki" id="rk-2"> = 2</div>
+      <div class="kmap"><input class="ki" id="rk-3"> = 3</div>
+      <div class="kmap"><input class="ki" id="rk-4"> = 4</div>
+      <div class="kmap"><input class="ki" id="rk-5"> = 5</div>
+      <div class="kmap"><input class="ki" id="rk-6"> = 6</div>
+      <div class="kmap"><input class="ki" id="rk-7"> = 7</div>
+      <div class="kmap"><input class="ki" id="rk-8"> = 8</div>
+    </div>
   </div>
 
   <hr>
 
   <div class="section">
     <div class="section-title">Castling</div>
-    <div class="row">Kingside (white): <kbd>s</kbd><kbd>l</kbd><kbd>a</kbd> → king to g1</div>
-    <div class="row">Queenside (white): <kbd>s</kbd><kbd>d</kbd><kbd>a</kbd> → king to c1</div>
-    <div class="row">(Black mirrors: g8/c8)</div>
+    <div class="row">Kingside (white): <span id="castle-ks"></span> → king to g1</div>
+    <div class="row">Queenside (white): <span id="castle-qs"></span> → king to c1</div>
+    <div class="row">(Black mirrors: g8 / c8)</div>
   </div>
 
   <hr>
@@ -74,7 +116,6 @@
     <div class="section-title">Ambiguous moves</div>
     <div class="row">If two pieces can reach the same square, you'll hear <em>"ambiguous"</em>.</div>
     <div class="row">Press a 4th key for the <strong>source file or rank</strong> to disambiguate.</div>
-    <div class="row">Example: Ra1→d1 vs Rh1→d1 → type <kbd>s</kbd><kbd>f</kbd><kbd>d</kbd><kbd>a</kbd> (rook d1, from file a)</div>
   </div>
 
   <hr>
@@ -90,7 +131,7 @@
     <div class="section-title">Draw mode — press <kbd>m</kbd> to toggle</div>
     <div class="row">2 keys (file+rank) → highlight square</div>
     <div class="row">4 keys (file+rank+file+rank) → draw arrow</div>
-    <div class="row"><kbd>c</kbd> → clear all drawings (works in any mode)</div>
+    <div class="row"><kbd>c</kbd> → clear all drawings</div>
   </div>
 
   <hr>
@@ -104,7 +145,6 @@
   </div>
 
   <p class="note">
-    Extension activates automatically when a chess.com game board is detected.
     Opponent moves are announced aloud. Your moves are confirmed on key entry.
   </p>
 
