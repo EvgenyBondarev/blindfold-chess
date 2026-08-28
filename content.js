@@ -317,7 +317,13 @@
         if (dF === 0 && dR === dir && !pieces[dstKey]) return true;
         if (dF === 0 && dR === 2*dir && sr === startR &&
             !pieces[NUM_TO_FILE[sf]+(sr+dir)] && !pieces[dstKey]) return true;
-        if (Math.abs(dF) === 1 && dR === dir) { const target = pieces[NUM_TO_FILE[df] + dr]; return !!target && target.color !== color; }
+        if (Math.abs(dF) === 1 && dR === dir) {
+          const target = pieces[NUM_TO_FILE[df] + dr];
+          if (target && target.color !== color) return true;
+          // En passant: capture to empty square — enemy pawn is at dest-file, source-rank
+          const epPawn = pieces[NUM_TO_FILE[df] + sr];
+          return !target && !!epPawn && epPawn.color !== color && epPawn.type === 'pawn';
+        }
         return false;
       }
       case 'knight':
