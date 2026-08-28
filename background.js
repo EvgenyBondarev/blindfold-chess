@@ -521,11 +521,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
   // SPEAK / SPEAK_QUEUED — routed through background to bypass page autoplay restrictions
   if (msg.type === 'SPEAK') {
-    chrome.tts.speak(msg.text, { rate: 1.6, enqueue: false });
+    chrome.tts.speak(msg.text, { voiceName: 'Microsoft David Desktop', rate: 1.6, enqueue: false });
     return false;
   }
   if (msg.type === 'SPEAK_QUEUED') {
-    chrome.tts.speak(msg.text, { rate: 1.6, enqueue: true });
+    chrome.tts.speak(msg.text, { voiceName: 'Microsoft David Desktop', rate: 1.6, enqueue: true });
     return false;
   }
 
