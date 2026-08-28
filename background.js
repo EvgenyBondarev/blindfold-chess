@@ -387,19 +387,31 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (!sender.tab) return;
   const tabId = sender.tab.id;
 
-  // GET_STATE — reads piece positions via executeScript (no debugger needed)
+  // GET_STATE — polls until two consecutive reads give the same position (animation settled)
   if (msg.type === 'GET_STATE') {
-    chrome.scripting.executeScript({
-      target: { tabId, allFrames: true }, func: getPageState, world: 'MAIN',
-    })
-      .then(results => {
+    (async () => {
+      const read = () => chrome.scripting.executeScript({
+        target: { tabId, allFrames: true }, func: getPageState, world: 'MAIN',
+      }).then(results => {
         const hit = results.find(r => r.result?.count > 0);
-        const r   = hit?.result ?? { pieces: {}, orientation: 'white', count: 0, site: 'unknown' };
-        const plist = Object.entries(r.pieces || {}).map(([k,v]) => v.color[0]+v.type[0]+'@'+k).join(' ');
-        console.log('[Blindfold BG] GET_STATE', r.site, r.orientation, r.count+'p |', plist);
-        sendResponse(r);
-      })
-      .catch(err => { console.error('[BG]', err.message); sendResponse({ pieces: {}, orientation: 'white' }); });
+        return hit?.result ?? { pieces: {}, orientation: 'white', count: 0, site: 'unknown' };
+      });
+      const plist = r => Object.entries(r.pieces || {})
+        .map(([k, v]) => v.color[0] + v.type[0] + '@' + k).sort().join(' ');
+
+      let prev = null, result = null;
+      for (let i = 0; i < 4; i++) {
+        result = await read();
+        const pl = plist(result);
+        if (pl === prev && pl !== '') break;
+        prev = pl;
+        if (i < 3) await new Promise(r => setTimeout(r, 80));
+      }
+
+      const pl = Object.entries(result.pieces || {}).map(([k,v]) => v.color[0]+v.type[0]+'@'+k).join(' ');
+      console.log('[Blindfold BG] GET_STATE', result.site, result.orientation, result.count+'p |', pl);
+      sendResponse(result);
+    })().catch(err => { console.error('[BG]', err.message); sendResponse({ pieces: {}, orientation: 'white' }); });
     return true;
   }
 
