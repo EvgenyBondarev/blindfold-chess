@@ -709,7 +709,34 @@
       return;
     }
 
+    // Draw mode — collect file+rank+file+rank for an arrow
+    if (mode === 'draw') {
+      if (e.key === 'm' || e.key === 'Escape') {
+        e.preventDefault(); e.stopPropagation();
+        mode = 'moves'; drawBuffer = '';
+        return;
+      }
+      if (!FILE_RANK_KEYS.has(e.key)) return;
+      e.preventDefault(); e.stopPropagation();
+      drawBuffer += e.key;
+      if (drawBuffer.length === 4) {
+        const f1 = FILE_FROM_KEY[drawBuffer[0]], r1 = RANK_FROM_KEY[drawBuffer[1]];
+        const f2 = FILE_FROM_KEY[drawBuffer[2]], r2 = RANK_FROM_KEY[drawBuffer[3]];
+        drawBuffer = ''; mode = 'moves';
+        if (f1 && r1 && f2 && r2) send({ type: 'DRAW_ARROW', f1, r1, f2, r2 });
+      }
+      return;
+    }
+
     if (busy) return;
+
+    // Single-key shortcuts (only when not mid-move-sequence)
+    if (moveBuffer.length === 0) {
+      if (e.key === 'g') { e.preventDefault(); e.stopPropagation(); navKey('ArrowLeft'); return; }
+      if (e.key === 'h') { e.preventDefault(); e.stopPropagation(); navKey('ArrowRight'); return; }
+      if (e.key === 'm') { e.preventDefault(); e.stopPropagation(); mode = 'draw'; drawBuffer = ''; return; }
+      if (e.key === 'c') { e.preventDefault(); e.stopPropagation(); send({ type: 'CLEAR_DRAWINGS' }); return; }
+    }
 
     const valid = moveBuffer.length === 0 ? PIECE_KEYS : FILE_RANK_KEYS;
     if (!valid.has(e.key)) return;
