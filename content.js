@@ -403,8 +403,7 @@
         parts.push(color + ' ' + (sq.length > 1 ? type + 's' : type) + ' ' + sq.join(' '));
       }
     }
-    console.log('[Blindfold] narratePosition:', parts.join('. ') || '(empty)');
-    if (parts.length) speak(parts.join('. '));
+    if (parts.length) setTimeout(() => speak(parts.join('. ')), 0);
   }
 
   // ── Move execution ──────────────────────────────────────────────────────────
