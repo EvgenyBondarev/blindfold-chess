@@ -1,5 +1,7 @@
 'use strict';
 
+chrome.tts.getVoices(voices => console.log('[Blindfold TTS voices]', voices.map(v => v.voiceName)));
+
 // ── GET_STATE (runs in MAIN world via executeScript) ─────────────────────────
 function getPageState() {
   // ── Lichess (chessground) ──────────────────────────────────────────────────
