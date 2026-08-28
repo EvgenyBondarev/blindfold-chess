@@ -691,7 +691,7 @@
       if (drawBuffer.length === 4) {
         const f1 = FILE_FROM_KEY[drawBuffer[0]], r1 = RANK_FROM_KEY[drawBuffer[1]];
         const f2 = FILE_FROM_KEY[drawBuffer[2]], r2 = RANK_FROM_KEY[drawBuffer[3]];
-        drawBuffer = ''; mode = 'moves';
+        drawBuffer = '';
         if (f1 && r1 && f2 && r2) send({ type: 'DRAW_ARROW', f1, r1, f2, r2, orientation: playerColor });
       }
       return;
