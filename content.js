@@ -685,6 +685,8 @@
   document.addEventListener('keydown', e => {
     if (isTypingEl()) return;
 
+    if (e.key === 'Control') { chrome.runtime.sendMessage({ type: 'SPEAK_STOP' }); return; }
+
     // Disambiguation — 4th key after "ambiguous"
     if (pendingDisambig) {
       if (!FILE_RANK_KEYS.has(e.key)) return;

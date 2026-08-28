@@ -525,6 +525,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (!sender.tab) return;
   const tabId = sender.tab.id;
 
+  if (msg.type === 'SPEAK_STOP') { chrome.tts.stop(); return false; }
+
   // SPEAK / SPEAK_QUEUED — routed through background to bypass page autoplay restrictions
   if (msg.type === 'SPEAK') {
     chrome.tts.speak(msg.text, { voiceName: 'Microsoft David - English (United States)', rate: msg.rate || 1.6, enqueue: false });
