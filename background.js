@@ -73,17 +73,88 @@ function getPageState() {
       return result;
     }
 
-    var pieces = parseLichessPieces(oriented);
+    // Try chessground API getFen() — logical position, immune to mid-animation transforms
+    var cgApi = (function() {
+      // Check element properties first (fastest path)
+      var propNames = ['cg', '__cg', 'chessground', 'api', '__api', '_chessground'];
+      var elements = [cgBoard, cgBoard.parentElement, cgBoard.closest('.cg-wrap')];
+      for (var ei = 0; ei < elements.length; ei++) {
+        if (!elements[ei]) continue;
+        for (var pi = 0; pi < propNames.length; pi++) {
+          var cand = elements[ei][propNames[pi]];
+          if (cand && typeof cand.getFen === 'function') return cand;
+        }
+      }
+      // Try well-known Lichess global paths
+      try {
+        var lc = window.lichess;
+        if (lc) {
+          var subs = ['puzzle', 'analysis', 'round', 'board'];
+          for (var si = 0; si < subs.length; si++) {
+            var sub = lc[subs[si]];
+            if (!sub) continue;
+            if (typeof sub.getFen === 'function') return sub;
+            for (var pi2 = 0; pi2 < propNames.length; pi2++) {
+              var cand2 = sub[propNames[pi2]];
+              if (cand2 && typeof cand2.getFen === 'function') return cand2;
+            }
+          }
+        }
+      } catch(e) {}
+      // Bounded window search (depth 5, up to 30 keys per object)
+      var seen = new Set();
+      function search(obj, d) {
+        if (d > 5 || !obj || seen.has(obj)) return null;
+        var tp = typeof obj;
+        if (tp !== 'object' && tp !== 'function') return null;
+        seen.add(obj);
+        try {
+          if (typeof obj.setShapes === 'function' && typeof obj.getFen === 'function') return obj;
+          var ks = Object.keys(obj);
+          for (var i = 0; i < Math.min(ks.length, 30); i++) {
+            try { var r = search(obj[ks[i]], d + 1); if (r) return r; } catch(e) {}
+          }
+        } catch(e) {}
+        return null;
+      }
+      return search(window, 0);
+    })();
+
+    var pieces;
+    if (cgApi && typeof cgApi.getFen === 'function') {
+      var FEN_TYPES = {p:'pawn',r:'rook',n:'knight',b:'bishop',q:'queen',k:'king'};
+      var fenStr = cgApi.getFen();
+      var fenRows = fenStr.split('/');
+      var fenPieces = {};
+      for (var fi = 0; fi < fenRows.length; fi++) {
+        var fenRank = 8 - fi;
+        var fenCol = 0;
+        for (var fj = 0; fj < fenRows[fi].length; fj++) {
+          var fc = fenRows[fi][fj];
+          if (fc >= '1' && fc <= '8') { fenCol += +fc; continue; }
+          var fcolor = fc === fc.toUpperCase() ? 'white' : 'black';
+          var ftype = FEN_TYPES[fc.toLowerCase()];
+          var ffile = LN2F[fenCol + 1];
+          if (ffile && ftype) fenPieces[ffile + fenRank] = { file: ffile, rank: fenRank, color: fcolor, type: ftype };
+          fenCol++;
+        }
+      }
+      if (Object.keys(fenPieces).length > 0) {
+        console.log('[Blindfold] FEN:', fenStr, '| pieces:', Object.keys(fenPieces).length);
+        pieces = fenPieces;
+      }
+    }
+    if (!pieces) pieces = parseLichessPieces(oriented);
 
     // Method 3: sanity-check orientation via king positions
     if (oriented === 'white') {
       // Black king should never start at rank ≤ 2; if it does, board is flipped
       var bk = Object.values(pieces).find(function(p) { return p.color === 'black' && p.type === 'king'; });
-      if (bk && bk.rank <= 2) { oriented = 'black'; pieces = parseLichessPieces('black'); }
+      if (bk && bk.rank <= 2) { oriented = 'black'; if (!cgApi) pieces = parseLichessPieces('black'); }
     } else {
       // White king should never start at rank ≥ 7 in black orientation; if it does, board is not flipped
       var wk = Object.values(pieces).find(function(p) { return p.color === 'white' && p.type === 'king'; });
-      if (wk && wk.rank >= 7) { oriented = 'white'; pieces = parseLichessPieces('white'); }
+      if (wk && wk.rank >= 7) { oriented = 'white'; if (!cgApi) pieces = parseLichessPieces('white'); }
     }
 
     console.log('[Blindfold] lichess orientation:', oriented, 'pieces:', Object.keys(pieces).length);

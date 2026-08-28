@@ -361,7 +361,7 @@
         return ((Math.abs(dF)===Math.abs(dR))||dF===0||dR===0) &&
                !(dF===0&&dR===0) && isPathClear(sf,sr,df,dr,pieces);
       case 'king':
-        return Math.abs(dF)<=2 && Math.abs(dR)<=1 && !(dF===0&&dR===0);
+        return Math.abs(dF)<=1 && Math.abs(dR)<=1 && !(dF===0&&dR===0);
       default: return false;
     }
   }
