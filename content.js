@@ -293,6 +293,7 @@
     seqBranches = [];
     lastActiveSAN = '';
     moveBuffer = ''; pendingDisambig = null; queuedKey = null; drawnShapes = [];
+    send({ type: 'CLEAR_DRAWINGS', shapes: [], orientation: playerColor });
     // The move observer announces the opponent's first move when Lichess auto-plays it.
   }
 
@@ -883,6 +884,8 @@
       lastMoveText = ''; waitingForOpponent = false; clearTimeout(puzzleTimeout);
       puzzleComplete = false; seqBranches = [];
       busy = false; pendingDisambig = null; queuedKey = null;
+      if (mode === 'draw') { mode = 'moves'; }
+      if (drawnShapes.length) { drawnShapes = []; send({ type: 'CLEAR_DRAWINGS', shapes: [], orientation: playerColor }); }
       if (moveObserver) { moveObserver.disconnect(); moveObserver = null; }
       setTimeout(() => { if (hasBoard()) onGameStart(); }, 1200);
     } else {
