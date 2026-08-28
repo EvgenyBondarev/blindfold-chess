@@ -685,6 +685,11 @@
         mode = 'moves'; drawBuffer = ''; speak('move');
         return;
       }
+      if (e.key === 'c') {
+        e.preventDefault(); e.stopPropagation();
+        drawBuffer = ''; send({ type: 'CLEAR_DRAWINGS' });
+        return;
+      }
       if (!FILE_RANK_KEYS.has(e.key)) return;
       e.preventDefault(); e.stopPropagation();
       drawBuffer += e.key;
