@@ -27,6 +27,21 @@ for (const k of TOGGLE_KEYS) {
   });
 }
 
+// ── Narration speed ───────────────────────────────────────────────────────────
+(function () {
+  const slider = document.getElementById('narrationRate');
+  const label  = document.getElementById('narrationRateVal');
+  chrome.storage.sync.get({ narrationRate: 1.6 }, vals => {
+    slider.value = vals.narrationRate;
+    label.textContent = parseFloat(vals.narrationRate).toFixed(1) + '×';
+  });
+  slider.addEventListener('input', () => {
+    const v = parseFloat(slider.value);
+    label.textContent = v.toFixed(1) + '×';
+    chrome.storage.sync.set({ narrationRate: v });
+  });
+})();
+
 // ── Key layout ────────────────────────────────────────────────────────────────
 const LAYOUT_DEFAULTS = { ...PRESETS.homerow };
 

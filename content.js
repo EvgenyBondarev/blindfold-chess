@@ -32,7 +32,7 @@
     rankKeys:  { '1':'a','2':'s','3':'d','4':'f','5':'j','6':'k','7':'l','8':';' },
   };
   const SETTING_DEFAULTS = {
-    moveNarration: true, drawNarration: true, positionNarration: false, puzzleSounds: true, seqInput: true,
+    moveNarration: true, drawNarration: true, positionNarration: false, puzzleSounds: true, seqInput: true, narrationRate: 1.6,
     castleKeys: { kingside: '', queenside: '' },
     ...HOMEROW_KEYS,
   };
@@ -119,12 +119,12 @@
 
   // ── TTS — routed through background to bypass page autoplay restrictions ─────
   function speak(text) {
-    chrome.runtime.sendMessage({ type: 'SPEAK', text });
+    chrome.runtime.sendMessage({ type: 'SPEAK', text, rate: settings.narrationRate });
   }
 
   // Plays text after the current utterance finishes instead of cutting it off.
   function speakQueued(text) {
-    chrome.runtime.sendMessage({ type: 'SPEAK_QUEUED', text });
+    chrome.runtime.sendMessage({ type: 'SPEAK_QUEUED', text, rate: settings.narrationRate });
   }
 
   // ── Puzzle audio feedback ────────────────────────────────────────────────────
@@ -739,6 +739,7 @@
       if (e.key === 'h') { e.preventDefault(); e.stopPropagation(); navKey('ArrowRight'); return; }
       if (e.key === 'm') { e.preventDefault(); e.stopPropagation(); mode = 'draw'; drawBuffer = ''; speak('draw'); return; }
       if (e.key === 'c') { e.preventDefault(); e.stopPropagation(); const toClear2 = drawnShapes.slice(); drawnShapes = []; send({ type: 'CLEAR_DRAWINGS', shapes: toClear2, orientation: playerColor }); return; }
+      if (e.key === 'r') { e.preventDefault(); e.stopPropagation(); send({ type: 'GET_STATE' }).then(pos => { if (pos.pieces) narratePosition(pos.pieces); }); return; }
     }
 
     const valid = moveBuffer.length === 0 ? PIECE_KEYS : FILE_RANK_KEYS;

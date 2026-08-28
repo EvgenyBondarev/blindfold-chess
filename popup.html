@@ -148,9 +148,14 @@
     <div class="section-title">Settings</div>
     <div class="row"><label><input type="checkbox" id="moveNarration"> Move narration</label></div>
     <div class="row"><label><input type="checkbox" id="drawNarration"> Draw narration</label></div>
-    <div class="row"><label><input type="checkbox" id="positionNarration"> Position narration</label></div>
+    <div class="row"><label><input type="checkbox" id="positionNarration"> Position narration (<kbd>r</kbd> to repeat)</label></div>
     <div class="row"><label><input type="checkbox" id="puzzleSounds"> Puzzle sounds</label></div>
     <div class="row"><label><input type="checkbox" id="seqInput"> Sequence input (i) — toggle with <kbd>q</kbd></label></div>
+    <div class="row" style="gap:8px;align-items:center">
+      <span style="white-space:nowrap">Narration speed</span>
+      <input type="range" id="narrationRate" min="0.5" max="3" step="0.1" style="flex:1">
+      <span id="narrationRateVal" style="min-width:30px;text-align:right;font-family:monospace">1.6×</span>
+    </div>
   </div>
 
   <p class="note">
