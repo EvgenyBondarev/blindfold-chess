@@ -341,12 +341,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       const src = squareXY(rect, msg.srcFile, msg.srcRank);
       const dst = squareXY(rect, msg.dstFile, msg.dstRank);
 
-      await ensureAttached(tabId);
       console.log('[Blindfold BG] CLICK_MOVE', msg.srcFile+msg.srcRank, '→', msg.dstFile+msg.dstRank,
                   '| src:', src.x, src.y, '| dst:', dst.x, dst.y, '| site:', rect.site);
 
+      await ensureAttached(tabId);
+
       if (rect.site === 'lichess') {
-        // Lichess/chessground: click-to-move (click src to select, click dst to move)
+        // Click-click: select piece, wait, click destination
         await dbgCmd(tabId, 'Input.dispatchMouseEvent',
           { type: 'mousePressed',  x: src.x, y: src.y, button: 'left', buttons: 1, clickCount: 1, pointerType: 'mouse' });
         await dbgCmd(tabId, 'Input.dispatchMouseEvent',

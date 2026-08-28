@@ -322,6 +322,7 @@
     }
     await new Promise(r => setTimeout(r, 150));
     navigating = false;
+    moveBuffer = ''; pendingDisambig = null; queuedKey = null;
 
     if (firstMoveSAN && settings.moveNarration) speak(readSAN(firstMoveSAN));
   }
@@ -421,40 +422,25 @@
       console.log('[Blindfold] move:', playerColor, pieceType, '→', dstFile+dstRank,
                   '| candidates:', candidates.map(p => p.file+p.rank));
 
-      if (candidates.length === 0) { seqBranches = []; speak('no valid move'); return; }
-
-      if (candidates.length > 1 && !disambigKey) {
-        if (queuedKey !== null) {
-          disambigKey = queuedKey;  // user already pressed the 4th key while we were busy
-          queuedKey = null;
-        } else {
-          seqBranches = [];
-          pendingDisambig = { piece: pieceType, file: dstFile, rank: dstRank, candidates };
-          speak('ambiguous');
-          return;
-        }
-      }
+      if (candidates.length === 0) { speak('no valid move'); return; }
 
       if (candidates.length > 1 && disambigKey) {
-        const origCandidates = candidates;
         const srcFile = FILE_FROM_KEY[disambigKey];
         const srcRank = RANK_FROM_KEY[disambigKey];
-        // File takes priority over rank to avoid false matches when both pieces share a rank
         let filtered = srcFile ? candidates.filter(p => p.file === srcFile) : [];
         if (filtered.length === 0) filtered = srcRank ? candidates.filter(p => p.rank === srcRank) : [];
         candidates = filtered;
-        if (candidates.length === 0) { seqBranches = []; speak('no valid move'); return; }
-        if (candidates.length > 1) {
-          seqBranches = [];
-          pendingDisambig = { piece: pieceType, file: dstFile, rank: dstRank, candidates: origCandidates };
-          speak('still ambiguous'); return;
-        }
+        if (candidates.length === 0) { speak('no valid move'); return; }
+      }
+
+      if (candidates.length > 1) {
+        pendingDisambig = { piece: pieceType, file: dstFile, rank: dstRank, candidates };
+        speak('ambiguous');
+        return;
       }
 
       const src = candidates[0];
-      myMoveJustMade = true;
-      startPuzzleWait(); // must be before await so onOpponentMoved() can fire during the send
-      if (settings.moveNarration) speak(pieceType + ' ' + dstFile + ' ' + dstRank);
+      speak(pieceType + ' ' + dstFile + ' ' + dstRank);
 
       const isPromotion = pieceType === 'pawn' &&
         ((playerColor === 'white' && dstRank === 8) ||
@@ -713,174 +699,29 @@
   document.addEventListener('keydown', e => {
     if (isTypingEl()) return;
 
-    if (e.key === 'Enter' && isPuzzlePage()) {
-      if (playlistActive && playlistItems.length) {
-        e.preventDefault(); e.stopPropagation();
-        if (playlistPuzzleSolved) {
-          playlistPuzzleSolved = false;
-          const next = (playlistIndex + 1) % playlistItems.length;
-          chrome.storage.local.set({ playlistIndex: next }, () => {
-            window.location.href = 'https://lichess.org/training/' + playlistItems[next][0];
-          });
-        } else {
-          const m = location.pathname.match(/\/training\/([A-Za-z0-9]+)/);
-          if (!m || m[1] !== playlistItems[playlistIndex]?.[0]) {
-            window.location.href = 'https://lichess.org/training/' + playlistItems[playlistIndex][0];
-          }
-        }
-        return;
-      }
-      const feedbackBtns = [
-        ...document.querySelectorAll('.puzzle__feedback a, .puzzle__feedback button'),
-      ];
-      if (feedbackBtns.length) {
-        const btn = feedbackBtns.find(b =>
-          !/(practice|computer|again)/i.test(b.textContent + (b.getAttribute('href') || ''))
-        ) || feedbackBtns[0];
-        if (btn) { e.preventDefault(); e.stopPropagation(); btn.click(); return; }
-      }
-      return;
-    }
-
-    if (e.key === 'i' && isPuzzlePage() && settings.seqInput) {
-      e.preventDefault(); e.stopPropagation();
-      showSeqOverlay();
-      return;
-    }
-
-    if (e.key === 'q') {
-      e.preventDefault(); e.stopPropagation();
-      const next = !settings.seqInput;
-      settings.seqInput = next;
-      chrome.storage.sync.set({ seqInput: next });
-      speak('sequence ' + (next ? 'on' : 'off'));
-      return;
-    }
-
-    if (e.key === 'g') {
-      e.preventDefault(); e.stopPropagation();
-      moveBuffer = ''; pendingDisambig = null; queuedKey = null;
-      navKey('ArrowLeft');
-      return;
-    }
-
-    if (e.key === 'h') {
-      e.preventDefault(); e.stopPropagation();
-      moveBuffer = ''; pendingDisambig = null; queuedKey = null;
-      navKey('ArrowRight');
-      return;
-    }
-
-    if (e.key === 'm') {
-      e.preventDefault(); e.stopPropagation();
-      if (drawTimer) { clearTimeout(drawTimer); drawTimer = null; }
-      mode = mode === 'moves' ? 'draw' : 'moves';
-      moveBuffer = ''; drawBuffer = ''; pendingDisambig = null; queuedKey = null;
-      speak(mode === 'draw' ? 'draw mode' : 'move mode');
-      return;
-    }
-
-    if (e.key === 'c') {
-      e.preventDefault(); e.stopPropagation();
-      if (drawTimer) { clearTimeout(drawTimer); drawTimer = null; }
-      drawBuffer = '';
-      send({ type: 'CLEAR_DRAWINGS' });
-      speak('cleared');
-      return;
-    }
-
-    // Custom castle shortcuts — single keys configured in the popup for custom layout
-    const cks = settings.castleKeys;
-    if (cks) {
-      const ck = e.key.toLowerCase();
-      if (cks.kingside && ck === cks.kingside) {
-        e.preventDefault(); e.stopPropagation();
-        executeMove('king', 'g', playerColor === 'white' ? 1 : 8, null, null);
-        return;
-      }
-      if (cks.queenside && ck === cks.queenside) {
-        e.preventDefault(); e.stopPropagation();
-        executeMove('king', 'c', playerColor === 'white' ? 1 : 8, null, null);
-        return;
-      }
-    }
-
-    // oo/ooo castling — only when 'o' is not assigned to any piece, file, or rank key
-    if ((e.key === 'o' || e.key === 'O') && !PIECE_KEYS.has('o') && !FILE_RANK_KEYS.has('o')) {
-      e.preventDefault(); e.stopPropagation();
-      clearTimeout(castleTimer);
-      castleBuffer += 'o';
-      if (castleBuffer.length === 3) {
-        castleBuffer = '';
-        executeMove('king', 'c', playerColor === 'white' ? 1 : 8, null, null);
-        return;
-      }
-      castleTimer = setTimeout(() => {
-        if (castleBuffer.length >= 2) executeMove('king', 'g', playerColor === 'white' ? 1 : 8, null, null);
-        castleBuffer = '';
-      }, 500);
-      return;
-    }
-    if (castleBuffer.length > 0) { clearTimeout(castleTimer); castleBuffer = ''; }
-
-    if (mode === 'moves') {
-      // Disambiguation first — even if busy, this path leads straight to executeMove
-      if (pendingDisambig) {
-        if (!FILE_RANK_KEYS.has(e.key)) return;
-        e.preventDefault(); e.stopPropagation();
-        const { piece, file, rank, candidates } = pendingDisambig;
-        pendingDisambig = null;
-        queuedKey = null;
-        executeMove(piece, file, rank, candidates, e.key);
-        return;
-      }
-
-      if (busy) {
-        if (FILE_RANK_KEYS.has(e.key)) { queuedKey = e.key; e.preventDefault(); e.stopPropagation(); }
-        return;
-      }
-      queuedKey = null;
-
-      const valid = moveBuffer.length === 0 ? PIECE_KEYS : FILE_RANK_KEYS;
-      if (!valid.has(e.key)) return;
-      e.preventDefault(); e.stopPropagation();
-
-      moveBuffer += e.key;
-      if (moveBuffer.length === 3) {
-        const piece = PIECE_FROM_KEY[moveBuffer[0]];
-        const file  = FILE_FROM_KEY[moveBuffer[1]];
-        const rank  = RANK_FROM_KEY[moveBuffer[2]];
-        moveBuffer  = '';
-        if (piece && file && rank) executeMove(piece, file, rank, null, null);
-      }
-
-    } else {
+    // Disambiguation — 4th key after "ambiguous"
+    if (pendingDisambig) {
       if (!FILE_RANK_KEYS.has(e.key)) return;
       e.preventDefault(); e.stopPropagation();
+      const { piece, file, rank, candidates } = pendingDisambig;
+      pendingDisambig = null;
+      executeMove(piece, file, rank, candidates, e.key);
+      return;
+    }
 
-      drawBuffer += e.key;
+    if (busy) return;
 
-      if (drawBuffer.length === 2) {
-        drawTimer = setTimeout(() => {
-          const f = FILE_FROM_KEY[drawBuffer[0]], r = RANK_FROM_KEY[drawBuffer[1]];
-          if (f && r) {
-            if (settings.drawNarration) speak(f + ' ' + r);
-            send({ type: 'DRAW_HIGHLIGHT', file: f, rank: r });
-          }
-          drawBuffer = ''; drawTimer = null;
-        }, 1200);
-      }
-      if (drawBuffer.length === 3 && drawTimer) { clearTimeout(drawTimer); drawTimer = null; }
-      if (drawBuffer.length === 4) {
-        if (drawTimer) { clearTimeout(drawTimer); drawTimer = null; }
-        const f1 = FILE_FROM_KEY[drawBuffer[0]], r1 = RANK_FROM_KEY[drawBuffer[1]];
-        const f2 = FILE_FROM_KEY[drawBuffer[2]], r2 = RANK_FROM_KEY[drawBuffer[3]];
-        if (f1 && r1 && f2 && r2) {
-          if (settings.drawNarration) speak('arrow ' + f1+r1 + ' to ' + f2+r2);
-          send({ type: 'DRAW_ARROW', f1, r1, f2, r2 });
-        }
-        drawBuffer = '';
-      }
+    const valid = moveBuffer.length === 0 ? PIECE_KEYS : FILE_RANK_KEYS;
+    if (!valid.has(e.key)) return;
+    e.preventDefault(); e.stopPropagation();
+
+    moveBuffer += e.key;
+    if (moveBuffer.length === 3) {
+      const piece = PIECE_FROM_KEY[moveBuffer[0]];
+      const file  = FILE_FROM_KEY[moveBuffer[1]];
+      const rank  = RANK_FROM_KEY[moveBuffer[2]];
+      moveBuffer  = '';
+      if (piece && file && rank) executeMove(piece, file, rank, null, null);
     }
   }, true);
 
