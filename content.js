@@ -699,7 +699,10 @@
         const f2 = FILE_FROM_KEY[drawBuffer[2]], r2 = RANK_FROM_KEY[drawBuffer[3]];
         drawBuffer = '';
         if (f1 && r1 && f2 && r2) {
-          drawnShapes.push({ orig: f1 + r1, dest: f2 + r2, brush: 'green' });
+          const orig = f1 + r1, dest = f2 + r2;
+          const idx = drawnShapes.findIndex(s => s.orig === orig && s.dest === dest);
+          if (idx !== -1) drawnShapes.splice(idx, 1);  // toggle off
+          else drawnShapes.push({ orig, dest, brush: 'green' });
           send({ type: 'DRAW_ARROW', shapes: drawnShapes, f1, r1, f2, r2, orientation: playerColor });
           if (settings.drawNarration) {
             if (f1 === f2 && String(r1) === String(r2)) speak('circle ' + f1 + r1);

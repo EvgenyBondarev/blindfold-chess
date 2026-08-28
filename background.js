@@ -321,11 +321,18 @@ function getBoardRect() {
 
 // ── SET_SHAPES (runs in MAIN world via executeScript) ────────────────────────
 function setPageShapes(shapes) {
-  if (!document.querySelector('cg-board')) return false;
-  var wrap = document.querySelector('.cg-wrap');
+  var cg = document.querySelector('cg-board');
+  if (!cg) return false;
+  function callApi(api) {
+    if (api.state && api.state.drawable) api.state.drawable.enabled = true;
+    api.setShapes(shapes);
+    console.log('[Blindfold] setShapes OK, count:', shapes.length);
+    return true;
+  }
+  var wrap = cg.closest('.cg-wrap') || cg.parentElement;
   if (wrap) {
     var direct = wrap.cg || wrap.__cg || wrap.chessground;
-    if (direct && typeof direct.setShapes === 'function') { direct.setShapes(shapes); return true; }
+    if (direct && typeof direct.setShapes === 'function') return callApi(direct);
   }
   var seen = new Set();
   function find(obj, d) {
@@ -343,7 +350,8 @@ function setPageShapes(shapes) {
     return null;
   }
   var api = find(window, 0);
-  if (api) { api.setShapes(shapes); return true; }
+  if (api) return callApi(api);
+  console.log('[Blindfold] setShapes: API not found, falling back to CDP');
   return false;
 }
 
@@ -548,6 +556,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         world: 'MAIN',
       }).then(r => r.some(x => x.result === true)).catch(() => false);
 
+      console.log('[Blindfold BG] DRAW_ARROW', msg.f1 + msg.r1, '→', msg.f2 + msg.r2, '| apiOk:', apiOk, '| shapes:', shapes.length);
       if (!apiOk) {
         // Fallback: CDP right-click drag (chess.com or API unavailable)
         const rect = await getRect(tabId);
@@ -559,10 +568,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         await ensureAttached(tabId);
         await dbgCmd(tabId, 'Input.dispatchMouseEvent',
           { type: 'mousePressed',  x: src.x, y: src.y, button: 'right', buttons: 2, clickCount: 1, pointerType: 'mouse' });
+        await new Promise(r => setTimeout(r, 40));
         await dbgCmd(tabId, 'Input.dispatchMouseEvent',
           { type: 'mouseMoved',    x: mid.x, y: mid.y, button: 'none',  buttons: 2, pointerType: 'mouse' });
         await dbgCmd(tabId, 'Input.dispatchMouseEvent',
           { type: 'mouseMoved',    x: dst.x, y: dst.y, button: 'none',  buttons: 2, pointerType: 'mouse' });
+        await new Promise(r => setTimeout(r, 20));
         await dbgCmd(tabId, 'Input.dispatchMouseEvent',
           { type: 'mouseReleased', x: dst.x, y: dst.y, button: 'right', buttons: 0, clickCount: 1, pointerType: 'mouse' });
       }
