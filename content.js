@@ -32,7 +32,7 @@
     rankKeys:  { '1':'a','2':'s','3':'d','4':'f','5':'j','6':'k','7':'l','8':';' },
   };
   const SETTING_DEFAULTS = {
-    moveNarration: true, drawNarration: true, puzzleSounds: true, seqInput: true,
+    moveNarration: true, drawNarration: true, positionNarration: false, puzzleSounds: true, seqInput: true,
     castleKeys: { kingside: '', queenside: '' },
     ...HOMEROW_KEYS,
   };
@@ -379,6 +379,27 @@
     if (san.includes('#')) out += ', checkmate';
     else if (san.includes('+')) out += ', check';
     return out;
+  }
+
+  // ── Position narration ──────────────────────────────────────────────────────
+  function narratePosition(pieces) {
+    if (!pieces) return;
+    const ORDER = ['king', 'queen', 'rook', 'bishop', 'knight', 'pawn'];
+    const groups = {};
+    for (const p of Object.values(pieces)) {
+      const key = p.color + '|' + p.type;
+      (groups[key] = groups[key] || []).push(p.file + p.rank);
+    }
+    const parts = [];
+    for (const color of ['white', 'black']) {
+      for (const type of ORDER) {
+        const sq = groups[color + '|' + type];
+        if (!sq) continue;
+        sq.sort();
+        parts.push(color + ' ' + (sq.length > 1 ? type + 's' : type) + ' ' + sq.join(' '));
+      }
+    }
+    if (parts.length) speak(parts.join('. '));
   }
 
   // ── Move execution ──────────────────────────────────────────────────────────
@@ -863,7 +884,14 @@
     const state = await send({ type: 'GET_STATE' });
     playerColor = state.orientation || 'white';
     if (isPuzzlePage()) {
-      setTimeout(async () => { initMoveObserver(); await rewindPuzzle(); }, 800);
+      setTimeout(async () => {
+        initMoveObserver();
+        rewindPuzzle();
+        if (settings.positionNarration) {
+          const pos = await send({ type: 'GET_STATE' });
+          narratePosition(pos.pieces);
+        }
+      }, 800);
     } else {
       speak('Game started. You are playing as ' + playerColor + '.');
       setTimeout(initMoveObserver, 800);

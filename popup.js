@@ -15,8 +15,8 @@ const PRESETS = {
 };
 
 // ── Toggle checkboxes ─────────────────────────────────────────────────────────
-const TOGGLE_KEYS = ['moveNarration', 'drawNarration', 'puzzleSounds', 'seqInput'];
-const TOGGLE_DEFAULTS = { moveNarration:true, drawNarration:true, puzzleSounds:true, seqInput:true };
+const TOGGLE_KEYS = ['moveNarration', 'drawNarration', 'positionNarration', 'puzzleSounds', 'seqInput'];
+const TOGGLE_DEFAULTS = { moveNarration:true, drawNarration:true, positionNarration:false, puzzleSounds:true, seqInput:true };
 
 chrome.storage.sync.get(TOGGLE_DEFAULTS, vals => {
   for (const k of TOGGLE_KEYS) document.getElementById(k).checked = vals[k];
