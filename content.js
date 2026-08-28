@@ -280,7 +280,7 @@
   function navKey(arrow) {
     lastActiveSAN = '';   // force re-announce even if same move revisited
     navKeyPressed = true;
-    document.dispatchEvent(new KeyboardEvent('keydown', {
+    document.body.dispatchEvent(new KeyboardEvent('keydown', {
       key: arrow, code: arrow, bubbles: true, cancelable: true,
     }));
   }
@@ -713,7 +713,7 @@
     if (mode === 'draw') {
       if (e.key === 'm' || e.key === 'Escape') {
         e.preventDefault(); e.stopPropagation();
-        mode = 'moves'; drawBuffer = '';
+        mode = 'moves'; drawBuffer = ''; speak('move');
         return;
       }
       if (!FILE_RANK_KEYS.has(e.key)) return;
@@ -734,7 +734,7 @@
     if (moveBuffer.length === 0) {
       if (e.key === 'g') { e.preventDefault(); e.stopPropagation(); navKey('ArrowLeft'); return; }
       if (e.key === 'h') { e.preventDefault(); e.stopPropagation(); navKey('ArrowRight'); return; }
-      if (e.key === 'm') { e.preventDefault(); e.stopPropagation(); mode = 'draw'; drawBuffer = ''; return; }
+      if (e.key === 'm') { e.preventDefault(); e.stopPropagation(); mode = 'draw'; drawBuffer = ''; speak('draw'); return; }
       if (e.key === 'c') { e.preventDefault(); e.stopPropagation(); send({ type: 'CLEAR_DRAWINGS' }); return; }
     }
 
