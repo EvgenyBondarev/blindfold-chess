@@ -701,6 +701,10 @@
         if (f1 && r1 && f2 && r2) {
           drawnShapes.push({ orig: f1 + r1, dest: f2 + r2, brush: 'green' });
           send({ type: 'DRAW_ARROW', shapes: drawnShapes, f1, r1, f2, r2, orientation: playerColor });
+          if (settings.drawNarration) {
+            if (f1 === f2 && String(r1) === String(r2)) speak('circle ' + f1 + r1);
+            else speak(f1 + r1 + ' ' + f2 + r2);
+          }
         }
       }
       return;
