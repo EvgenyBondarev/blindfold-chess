@@ -315,7 +315,7 @@
     // clear a typical game (up to ~100 half-moves = 50 full moves).
     navigating = true;
     for (let i = 0; i < 100; i++) {
-      document.dispatchEvent(new KeyboardEvent('keydown', {
+      document.body.dispatchEvent(new KeyboardEvent('keydown', {
         key: 'ArrowLeft', code: 'ArrowLeft', bubbles: true, cancelable: true,
       }));
       await new Promise(r => setTimeout(r, 20));
