@@ -221,12 +221,47 @@ function getPageState() {
   return { pieces: pieces, orientation: orientation, count: Object.keys(pieces).length, site: 'chesscom' };
 }
 
+// ── Shared synthetic mouse event helper (inline in each injectable) ──────────
+// Dispatches a right-click drag on cg-board using synthetic DOM events.
+// These are synchronous and in-order — unlike CDP which is async/cross-process.
+function _cgMouseDrag(cg, sx, sy, dx, dy) {
+  var mx = (sx + dx) / 2, my = (sy + dy) / 2;
+  function ev(t, x, y, btn, btns) {
+    return new MouseEvent(t, { bubbles:true, cancelable:true, view:window,
+      clientX:x, clientY:y, button:btn, buttons:btns });
+  }
+  cg.dispatchEvent(ev('mousedown', sx, sy, 2, 2));
+  cg.dispatchEvent(ev('mousemove', mx, my,  0, 2));
+  cg.dispatchEvent(ev('mousemove', dx, dy,  0, 2));
+  document.dispatchEvent(ev('mouseup', dx, dy, 2, 0));
+}
+
+// ── DRAW_ARROW_SYNTHETIC (runs in MAIN world via executeScript) ───────────────
+function drawArrowOnPage(f1, r1, f2, r2, flipped) {
+  var cg = document.querySelector('cg-board');
+  if (!cg) return false;
+  var rect = cg.getBoundingClientRect();
+  var sq = rect.width / 8;
+  if (!sq) return false;
+  var FN = {a:1,b:2,c:3,d:4,e:5,f:6,g:7,h:8};
+  function xy(file, rank) {
+    var col = flipped ? 8 - FN[file] : FN[file] - 1;
+    var row = flipped ? rank - 1 : 8 - rank;
+    return { x: rect.left + col*sq + sq/2, y: rect.top + row*sq + sq/2 };
+  }
+  var src = xy(f1, r1), dst = xy(f2, r2);
+  _cgMouseDrag(cg, src.x, src.y, dst.x, dst.y);
+  return true;
+}
+
 // ── CLEAR_DRAWINGS (runs in MAIN world via executeScript) ────────────────────
-function clearPageDrawings() {
-  // Lichess: find Chessground API by searching accessible objects for setShapes+getFen
-  if (document.querySelector('cg-board')) {
+// shapesToClear: [{orig:'a1', dest:'c3'}, ...] — used to toggle each shape off
+// when the chessground API can't be found (synthetic events are additive/toggle).
+function clearPageDrawings(shapesToClear, flipped) {
+  var cg = document.querySelector('cg-board');
+  if (cg) {
     // Fast path: some integrations store the API on .cg-wrap
-    var wrap = document.querySelector('.cg-wrap');
+    var wrap = cg.closest('.cg-wrap') || cg.parentElement;
     if (wrap) {
       var direct = wrap.cg || wrap.__cg || wrap.chessground;
       if (direct && typeof direct.setShapes === 'function') { direct.setShapes([]); return true; }
@@ -249,17 +284,28 @@ function clearPageDrawings() {
     }
     var api = find(window, 0);
     if (api) { api.setShapes([]); return true; }
-    // Visual fallback: remove only drawing primitives (line/circle/path) from Chessground SVGs.
-    // Keep <defs> (arrowhead markers) and <g> containers intact — Chessground stores
-    // references to those <g> elements and breaks if they're removed from the DOM.
-    var cgSvgs = Array.from(document.querySelectorAll('.cg-wrap svg'))
-                      .concat(Array.from(document.querySelectorAll('cg-board > svg')));
-    cgSvgs.forEach(function(svg) {
-      svg.querySelectorAll('line, circle, path, rect, polyline, polygon').forEach(function(el) {
-        if (!el.closest('defs')) el.remove();
-      });
-    });
-    return true;
+    // API not found: toggle off each tracked shape via synthetic drag events.
+    // Chessground treats a right-click drag on an existing shape as a toggle-off.
+    if (shapesToClear && shapesToClear.length > 0) {
+      var rect = cg.getBoundingClientRect();
+      var sq = rect.width / 8;
+      if (sq) {
+        var FN = {a:1,b:2,c:3,d:4,e:5,f:6,g:7,h:8};
+        function xy(sq2, rank) {
+          var col = flipped ? 8 - FN[sq2] : FN[sq2] - 1;
+          var row = flipped ? rank - 1 : 8 - rank;
+          return { x: rect.left + col*sq + sq/2, y: rect.top + row*sq + sq/2 };
+        }
+        for (var i = 0; i < shapesToClear.length; i++) {
+          var s = shapesToClear[i];
+          var src = xy(s.orig[0], parseInt(s.orig[1]));
+          var dst = xy(s.dest[0], parseInt(s.dest[1]));
+          _cgMouseDrag(cg, src.x, src.y, dst.x, dst.y);
+        }
+        return true;
+      }
+    }
+    return true; // nothing to clear (drawnShapes was already empty)
   }
   // Chess.com: handled by Escape fallback in background
   return false;
@@ -526,11 +572,15 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
-  // CLEAR_DRAWINGS — executeScript for lichess (Chessground API), Escape CDP for chess.com
+  // CLEAR_DRAWINGS — executeScript for lichess (Chessground API or synthetic toggle-off), Escape for chess.com
   if (msg.type === 'CLEAR_DRAWINGS') {
     (async () => {
+      const flipped = msg.orientation === 'black';
       const results = await chrome.scripting.executeScript({
-        target: { tabId, allFrames: true }, func: clearPageDrawings, world: 'MAIN',
+        target: { tabId, allFrames: false },
+        func: clearPageDrawings,
+        args: [msg.shapes || [], flipped],
+        world: 'MAIN',
       }).catch(() => []);
       const handled = results.some(r => r.result === true);
       if (!handled) {
@@ -545,38 +595,52 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
-  // DRAW_ARROW — use chessground setShapes API (Lichess); CDP right-click drag fallback (chess.com)
+  // DRAW_ARROW — setShapes API (best); synthetic DOM events (Lichess fallback); CDP (chess.com last resort)
   if (msg.type === 'DRAW_ARROW') {
     (async () => {
-      const shapes = msg.shapes || [{ orig: msg.f1 + msg.r1, dest: msg.f2 + msg.r2, brush: 'green' }];
+      const flipped = msg.orientation === 'black';
+      const shapes  = msg.shapes || [{ orig: msg.f1 + msg.r1, dest: msg.f2 + msg.r2, brush: 'green' }];
+
+      // 1. Try chessground setShapes API (atomically replaces all shapes)
       const apiOk = await chrome.scripting.executeScript({
-        target: { tabId, allFrames: true },
+        target: { tabId, allFrames: false },
         func: setPageShapes,
         args: [shapes],
         world: 'MAIN',
       }).then(r => r.some(x => x.result === true)).catch(() => false);
 
-      console.log('[Blindfold BG] DRAW_ARROW', msg.f1 + msg.r1, '→', msg.f2 + msg.r2, '| apiOk:', apiOk, '| shapes:', shapes.length);
       if (!apiOk) {
-        // Fallback: CDP right-click drag (chess.com or API unavailable)
-        const rect = await getRect(tabId);
-        if (!rect) { sendResponse({}); return; }
-        if (msg.orientation) rect.flipped = (msg.orientation === 'black');
-        const src = squareXY(rect, msg.f1, msg.r1);
-        const dst = squareXY(rect, msg.f2, msg.r2);
-        const mid = { x: Math.round((src.x + dst.x) / 2), y: Math.round((src.y + dst.y) / 2) };
-        await ensureAttached(tabId);
-        await dbgCmd(tabId, 'Input.dispatchMouseEvent',
-          { type: 'mousePressed',  x: src.x, y: src.y, button: 'right', buttons: 2, clickCount: 1, pointerType: 'mouse' });
-        await new Promise(r => setTimeout(r, 40));
-        await dbgCmd(tabId, 'Input.dispatchMouseEvent',
-          { type: 'mouseMoved',    x: mid.x, y: mid.y, button: 'none',  buttons: 2, pointerType: 'mouse' });
-        await dbgCmd(tabId, 'Input.dispatchMouseEvent',
-          { type: 'mouseMoved',    x: dst.x, y: dst.y, button: 'none',  buttons: 2, pointerType: 'mouse' });
-        await new Promise(r => setTimeout(r, 20));
-        await dbgCmd(tabId, 'Input.dispatchMouseEvent',
-          { type: 'mouseReleased', x: dst.x, y: dst.y, button: 'right', buttons: 0, clickCount: 1, pointerType: 'mouse' });
+        // 2. Synthetic DOM events — synchronous, in-order, no timing issues
+        const synOk = await chrome.scripting.executeScript({
+          target: { tabId, allFrames: false },
+          func: drawArrowOnPage,
+          args: [msg.f1, msg.r1, msg.f2, msg.r2, flipped],
+          world: 'MAIN',
+        }).then(r => r.some(x => x.result === true)).catch(() => false);
+
+        if (!synOk) {
+          // 3. CDP right-click drag — last resort for chess.com (no cg-board element)
+          const rect = await getRect(tabId);
+          if (rect) {
+            if (msg.orientation) rect.flipped = flipped;
+            const src = squareXY(rect, msg.f1, msg.r1);
+            const dst = squareXY(rect, msg.f2, msg.r2);
+            const mid = { x: Math.round((src.x + dst.x) / 2), y: Math.round((src.y + dst.y) / 2) };
+            await ensureAttached(tabId);
+            await dbgCmd(tabId, 'Input.dispatchMouseEvent',
+              { type: 'mousePressed',  x: src.x, y: src.y, button: 'right', buttons: 2, clickCount: 1, pointerType: 'mouse' });
+            await new Promise(r => setTimeout(r, 40));
+            await dbgCmd(tabId, 'Input.dispatchMouseEvent',
+              { type: 'mouseMoved',    x: mid.x, y: mid.y, button: 'none',  buttons: 2, pointerType: 'mouse' });
+            await dbgCmd(tabId, 'Input.dispatchMouseEvent',
+              { type: 'mouseMoved',    x: dst.x, y: dst.y, button: 'none',  buttons: 2, pointerType: 'mouse' });
+            await new Promise(r => setTimeout(r, 20));
+            await dbgCmd(tabId, 'Input.dispatchMouseEvent',
+              { type: 'mouseReleased', x: dst.x, y: dst.y, button: 'right', buttons: 0, clickCount: 1, pointerType: 'mouse' });
+          }
+        }
       }
+      console.log('[Blindfold BG] DRAW_ARROW', msg.f1+msg.r1, '→', msg.f2+msg.r2, '| api:', apiOk);
       sendResponse({});
     })().catch(() => sendResponse({}));
     return true;

@@ -688,7 +688,9 @@
       }
       if (e.key === 'c') {
         e.preventDefault(); e.stopPropagation();
-        drawBuffer = ''; drawnShapes = []; send({ type: 'CLEAR_DRAWINGS' });
+        drawBuffer = '';
+        const toClear = drawnShapes.slice(); drawnShapes = [];
+        send({ type: 'CLEAR_DRAWINGS', shapes: toClear, orientation: playerColor });
         return;
       }
       if (!FILE_RANK_KEYS.has(e.key)) return;
@@ -720,7 +722,7 @@
       if (e.key === 'g') { e.preventDefault(); e.stopPropagation(); navKey('ArrowLeft'); return; }
       if (e.key === 'h') { e.preventDefault(); e.stopPropagation(); navKey('ArrowRight'); return; }
       if (e.key === 'm') { e.preventDefault(); e.stopPropagation(); mode = 'draw'; drawBuffer = ''; speak('draw'); return; }
-      if (e.key === 'c') { e.preventDefault(); e.stopPropagation(); drawnShapes = []; send({ type: 'CLEAR_DRAWINGS' }); return; }
+      if (e.key === 'c') { e.preventDefault(); e.stopPropagation(); const toClear2 = drawnShapes.slice(); drawnShapes = []; send({ type: 'CLEAR_DRAWINGS', shapes: toClear2, orientation: playerColor }); return; }
     }
 
     const valid = moveBuffer.length === 0 ? PIECE_KEYS : FILE_RANK_KEYS;
