@@ -192,6 +192,32 @@ document.getElementById('ck-qs').addEventListener('input', function() {
   saveCastleKeys();
 });
 
+// ── Blindfold puzzle ──────────────────────────────────────────────────────────
+(function () {
+  const DEFAULT_URL = 'https://lichess.org/training/pawnEndgame/qJ3i1';
+  const urlInput = document.getElementById('bp-url');
+  const checkbox = document.getElementById('bp-activate');
+
+  chrome.storage.sync.get({ blindfoldPuzzleUrl: DEFAULT_URL }, v => {
+    urlInput.value = v.blindfoldPuzzleUrl;
+  });
+
+  urlInput.addEventListener('change', function () {
+    chrome.storage.sync.set({ blindfoldPuzzleUrl: this.value.trim() });
+  });
+
+  checkbox.addEventListener('change', function () {
+    if (!this.checked) return;
+    this.checked = false;
+    const url = urlInput.value.trim();
+    if (!url) return;
+    chrome.storage.sync.set({ blindfoldPuzzleUrl: url });
+    chrome.tabs.query({ active: true, currentWindow: true }, tabs => {
+      if (tabs[0]) chrome.tabs.update(tabs[0].id, { url });
+    });
+  });
+})();
+
 // ── Playlist ──────────────────────────────────────────────────────────────────
 (function () {
   const statusEl = document.getElementById('pl-status');
