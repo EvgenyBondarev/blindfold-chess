@@ -222,6 +222,8 @@ function getPageState() {
 }
 
 // ── DRAW_ARROW_SYNTHETIC (runs in MAIN world via executeScript) ───────────────
+// Tries PointerEvent first (modern chessground), then MouseEvent.
+// mousedown goes to cg-board; move/up go to document (where chessground listens).
 function drawArrowOnPage(f1, r1, f2, r2, flipped) {
   var cg = document.querySelector('cg-board');
   if (!cg) return false;
@@ -236,14 +238,35 @@ function drawArrowOnPage(f1, r1, f2, r2, flipped) {
   }
   var src = xy(f1, r1), dst = xy(f2, r2);
   var mx = (src.x + dst.x) / 2, my = (src.y + dst.y) / 2;
-  function ev(t, x, y, btn, btns) {
-    return new MouseEvent(t, { bubbles:true, cancelable:true, view:window,
-      clientX:x, clientY:y, button:btn, buttons:btns });
+
+  // Count drawing elements in SVG before dispatch so we can detect if it worked
+  var svg = cg.querySelector('svg') || document.querySelector('.cg-wrap svg');
+  var before = svg ? svg.querySelectorAll('line,circle,path').length : -1;
+
+  function tryDraw(EventCtor, down, move, up) {
+    var opts = function(x, y, btn, btns) {
+      var o = { bubbles:true, cancelable:true, view:window,
+        clientX:x, clientY:y, button:btn, buttons:btns };
+      if (EventCtor === PointerEvent) { o.pointerId = 1; o.pointerType = 'mouse'; o.isPrimary = true; }
+      return o;
+    };
+    cg.dispatchEvent(new EventCtor(down, opts(src.x, src.y, 2, 2)));
+    document.dispatchEvent(new EventCtor(move, opts(mx, my, 0, 2)));
+    document.dispatchEvent(new EventCtor(move, opts(dst.x, dst.y, 0, 2)));
+    document.dispatchEvent(new EventCtor(up,   opts(dst.x, dst.y, 2, 0)));
   }
-  cg.dispatchEvent(ev('mousedown', src.x, src.y, 2, 2));
-  cg.dispatchEvent(ev('mousemove', mx, my, 0, 2));
-  cg.dispatchEvent(ev('mousemove', dst.x, dst.y, 0, 2));
-  document.dispatchEvent(ev('mouseup', dst.x, dst.y, 2, 0));
+
+  // Try PointerEvent (chessground v7+ prefers these)
+  tryDraw(PointerEvent, 'pointerdown', 'pointermove', 'pointerup');
+
+  var after = svg ? svg.querySelectorAll('line,circle,path').length : -1;
+  if (after === before || before === -1) {
+    // PointerEvent didn't change the SVG — try MouseEvent
+    tryDraw(MouseEvent, 'mousedown', 'mousemove', 'mouseup');
+    after = svg ? svg.querySelectorAll('line,circle,path').length : -1;
+  }
+
+  console.log('[Blindfold] drawArrowOnPage ptr+mouse, svgDelta:', after - before);
   return true;
 }
 
@@ -289,19 +312,24 @@ function clearPageDrawings(shapesToClear, flipped) {
           var row = flipped ? rank - 1 : 8 - rank;
           return { x: rect.left + col*sq + sq/2, y: rect.top + row*sq + sq/2 };
         }
-        function ev(t, x, y, btn, btns) {
-          return new MouseEvent(t, { bubbles:true, cancelable:true, view:window,
-            clientX:x, clientY:y, button:btn, buttons:btns });
+        function drag(ECtor, dn, mv, up, sx, sy, dx, dy) {
+          var o = function(x, y, b, bs) {
+            var opt = { bubbles:true, cancelable:true, view:window,
+              clientX:x, clientY:y, button:b, buttons:bs };
+            if (ECtor === PointerEvent) { opt.pointerId=1; opt.pointerType='mouse'; opt.isPrimary=true; }
+            return opt;
+          };
+          cg.dispatchEvent(new ECtor(dn, o(sx, sy, 2, 2)));
+          document.dispatchEvent(new ECtor(mv, o((sx+dx)/2, (sy+dy)/2, 0, 2)));
+          document.dispatchEvent(new ECtor(mv, o(dx, dy, 0, 2)));
+          document.dispatchEvent(new ECtor(up, o(dx, dy, 2, 0)));
         }
         for (var i = 0; i < shapesToClear.length; i++) {
           var s = shapesToClear[i];
           var src = xy(s.orig[0], parseInt(s.orig[1]));
           var dst = xy(s.dest[0], parseInt(s.dest[1]));
-          var mx = (src.x + dst.x) / 2, my = (src.y + dst.y) / 2;
-          cg.dispatchEvent(ev('mousedown', src.x, src.y, 2, 2));
-          cg.dispatchEvent(ev('mousemove', mx, my, 0, 2));
-          cg.dispatchEvent(ev('mousemove', dst.x, dst.y, 0, 2));
-          document.dispatchEvent(ev('mouseup', dst.x, dst.y, 2, 0));
+          drag(PointerEvent, 'pointerdown','pointermove','pointerup', src.x,src.y,dst.x,dst.y);
+          drag(MouseEvent,   'mousedown',  'mousemove',  'mouseup',   src.x,src.y,dst.x,dst.y);
         }
         return true;
       }
@@ -641,7 +669,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           }
         }
       }
-      console.log('[Blindfold BG] DRAW_ARROW', msg.f1+msg.r1, '→', msg.f2+msg.r2, '| api:', apiOk);
+      console.log('[Blindfold BG] DRAW_ARROW', msg.f1+msg.r1, '→', msg.f2+msg.r2, '| api:', apiOk, 'syn:', synOk);
       sendResponse({});
     })().catch(() => sendResponse({}));
     return true;
