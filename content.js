@@ -422,7 +422,7 @@
       console.log('[Blindfold] move:', playerColor, pieceType, '→', dstFile+dstRank,
                   '| candidates:', candidates.map(p => p.file+p.rank));
 
-      if (candidates.length === 0) { speak('no valid move'); return; }
+      if (candidates.length === 0) { if (settings.moveNarration) speak('no valid move'); return; }
 
       if (candidates.length > 1 && disambigKey) {
         const srcFile = FILE_FROM_KEY[disambigKey];
@@ -430,17 +430,17 @@
         let filtered = srcFile ? candidates.filter(p => p.file === srcFile) : [];
         if (filtered.length === 0) filtered = srcRank ? candidates.filter(p => p.rank === srcRank) : [];
         candidates = filtered;
-        if (candidates.length === 0) { speak('no valid move'); return; }
+        if (candidates.length === 0) { if (settings.moveNarration) speak('no valid move'); return; }
       }
 
       if (candidates.length > 1) {
         pendingDisambig = { piece: pieceType, file: dstFile, rank: dstRank, candidates };
-        speak('ambiguous');
+        if (settings.moveNarration) speak('ambiguous');
         return;
       }
 
       const src = candidates[0];
-      speak(pieceType + ' ' + dstFile + ' ' + dstRank);
+      if (settings.moveNarration) speak(pieceType + ' ' + dstFile + ' ' + dstRank);
 
       const isPromotion = pieceType === 'pawn' &&
         ((playerColor === 'white' && dstRank === 8) ||
