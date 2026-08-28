@@ -61,6 +61,10 @@
       if (k === 'pieceKeys' || k === 'fileKeys' || k === 'rankKeys') layoutChanged = true;
     }
     if (layoutChanged) applyKeyLayout(settings.pieceKeys, settings.fileKeys, settings.rankKeys);
+    // Narrate immediately if the user enables position narration while already on a puzzle
+    if (changes.positionNarration?.newValue && gameActive && isPuzzlePage()) {
+      send({ type: 'GET_STATE' }).then(pos => { if (pos.pieces) narratePosition(pos.pieces); });
+    }
   });
 
   // ── State ───────────────────────────────────────────────────────────────────
@@ -399,6 +403,7 @@
         parts.push(color + ' ' + (sq.length > 1 ? type + 's' : type) + ' ' + sq.join(' '));
       }
     }
+    console.log('[Blindfold] narratePosition:', parts.join('. ') || '(empty)');
     if (parts.length) speak(parts.join('. '));
   }
 
