@@ -221,52 +221,85 @@ function getPageState() {
   return { pieces: pieces, orientation: orientation, count: Object.keys(pieces).length, site: 'chesscom' };
 }
 
-// ── DRAW_ARROW_SYNTHETIC (runs in MAIN world via executeScript) ───────────────
-// Tries PointerEvent first (modern chessground), then MouseEvent.
-// mousedown goes to cg-board; move/up go to document (where chessground listens).
-function drawArrowOnPage(f1, r1, f2, r2, flipped) {
+// ── DRAW_ARROWS_SVG (runs in MAIN world via executeScript) ───────────────────
+// Injects SVG elements directly into chessground's drawing SVG.
+// Synthetic events are blocked by Lichess (isTrusted check), so we bypass
+// chessground's event system entirely. Since we never set drawable.dirty,
+// chessground won't re-render and wipe our elements on piece moves.
+function drawArrowsOnPage(shapes, flipped) {
   var cg = document.querySelector('cg-board');
   if (!cg) return false;
-  var rect = cg.getBoundingClientRect();
-  var sq = rect.width / 8;
+  var sq = cg.clientWidth / 8;
   if (!sq) return false;
+  var svg = cg.querySelector('svg') || document.querySelector('.cg-wrap svg');
+  if (!svg) return false;
+
+  var NS = 'http://www.w3.org/2000/svg';
+  var color = '#15781B'; // chessground green brush color
+  var lw = sq * 0.15;
   var FN = {a:1,b:2,c:3,d:4,e:5,f:6,g:7,h:8};
+
   function xy(file, rank) {
     var col = flipped ? 8 - FN[file] : FN[file] - 1;
     var row = flipped ? rank - 1 : 8 - rank;
-    return { x: rect.left + col*sq + sq/2, y: rect.top + row*sq + sq/2 };
-  }
-  var src = xy(f1, r1), dst = xy(f2, r2);
-  var mx = (src.x + dst.x) / 2, my = (src.y + dst.y) / 2;
-
-  // Count drawing elements in SVG before dispatch so we can detect if it worked
-  var svg = cg.querySelector('svg') || document.querySelector('.cg-wrap svg');
-  var before = svg ? svg.querySelectorAll('line,circle,path').length : -1;
-
-  function tryDraw(EventCtor, down, move, up) {
-    var opts = function(x, y, btn, btns) {
-      var o = { bubbles:true, cancelable:true, view:window,
-        clientX:x, clientY:y, button:btn, buttons:btns };
-      if (EventCtor === PointerEvent) { o.pointerId = 1; o.pointerType = 'mouse'; o.isPrimary = true; }
-      return o;
-    };
-    cg.dispatchEvent(new EventCtor(down, opts(src.x, src.y, 2, 2)));
-    document.dispatchEvent(new EventCtor(move, opts(mx, my, 0, 2)));
-    document.dispatchEvent(new EventCtor(move, opts(dst.x, dst.y, 0, 2)));
-    document.dispatchEvent(new EventCtor(up,   opts(dst.x, dst.y, 2, 0)));
+    return { x: col*sq + sq/2, y: row*sq + sq/2 };
   }
 
-  // Try PointerEvent (chessground v7+ prefers these)
-  tryDraw(PointerEvent, 'pointerdown', 'pointermove', 'pointerup');
+  // Remove previously injected shapes
+  svg.querySelectorAll('[data-bf]').forEach(function(el) { el.remove(); });
 
-  var after = svg ? svg.querySelectorAll('line,circle,path').length : -1;
-  if (after === before || before === -1) {
-    // PointerEvent didn't change the SVG — try MouseEvent
-    tryDraw(MouseEvent, 'mousedown', 'mousemove', 'mouseup');
-    after = svg ? svg.querySelectorAll('line,circle,path').length : -1;
+  // Ensure arrowhead marker exists in defs
+  var markId = 'bf-arrow';
+  if (!svg.querySelector('#' + markId)) {
+    var defs = svg.querySelector('defs');
+    if (!defs) { defs = document.createElementNS(NS, 'defs'); svg.insertBefore(defs, svg.firstChild); }
+    var marker = document.createElementNS(NS, 'marker');
+    marker.setAttribute('id', markId);
+    marker.setAttribute('orient', 'auto');
+    marker.setAttribute('markerWidth', '4');
+    marker.setAttribute('markerHeight', '8');
+    marker.setAttribute('refX', '2.05');
+    marker.setAttribute('refY', '2.01');
+    var mp = document.createElementNS(NS, 'path');
+    mp.setAttribute('d', 'M0,0 V4 L3,2 Z');
+    mp.setAttribute('fill', color);
+    marker.appendChild(mp);
+    defs.appendChild(marker);
   }
 
-  console.log('[Blindfold] drawArrowOnPage ptr+mouse, svgDelta:', after - before);
+  shapes.forEach(function(shape) {
+    var f1 = shape.orig[0], r1 = parseInt(shape.orig[1]);
+    var f2 = shape.dest[0], r2 = parseInt(shape.dest[1]);
+    var src = xy(f1, r1), dst = xy(f2, r2);
+    var el;
+    if (f1 === f2 && r1 === r2) {
+      el = document.createElementNS(NS, 'circle');
+      el.setAttribute('cx', src.x);
+      el.setAttribute('cy', src.y);
+      el.setAttribute('r', lw * 3.5);
+      el.setAttribute('fill', 'none');
+      el.setAttribute('stroke', color);
+      el.setAttribute('stroke-width', lw);
+      el.setAttribute('opacity', '0.6');
+    } else {
+      var dx = dst.x - src.x, dy = dst.y - src.y;
+      var len = Math.sqrt(dx*dx + dy*dy);
+      var margin = lw * 4;
+      el = document.createElementNS(NS, 'line');
+      el.setAttribute('x1', src.x);
+      el.setAttribute('y1', src.y);
+      el.setAttribute('x2', dst.x - dx/len * margin);
+      el.setAttribute('y2', dst.y - dy/len * margin);
+      el.setAttribute('stroke', color);
+      el.setAttribute('stroke-width', lw);
+      el.setAttribute('marker-end', 'url(#' + markId + ')');
+      el.setAttribute('opacity', '1');
+    }
+    el.setAttribute('data-bf', '1');
+    svg.appendChild(el);
+  });
+
+  console.log('[Blindfold] drawArrowsOnPage: injected', shapes.length, 'shapes');
   return true;
 }
 
@@ -300,41 +333,13 @@ function clearPageDrawings(shapesToClear, flipped) {
     }
     var api = find(window, 0);
     if (api) { api.setShapes([]); return true; }
-    // API not found: toggle off each tracked shape via synthetic drag events.
-    // Chessground treats a right-click drag on an existing shape as a toggle-off.
-    if (shapesToClear && shapesToClear.length > 0) {
-      var rect = cg.getBoundingClientRect();
-      var sq = rect.width / 8;
-      if (sq) {
-        var FN = {a:1,b:2,c:3,d:4,e:5,f:6,g:7,h:8};
-        function xy(sq2, rank) {
-          var col = flipped ? 8 - FN[sq2] : FN[sq2] - 1;
-          var row = flipped ? rank - 1 : 8 - rank;
-          return { x: rect.left + col*sq + sq/2, y: rect.top + row*sq + sq/2 };
-        }
-        function drag(ECtor, dn, mv, up, sx, sy, dx, dy) {
-          var o = function(x, y, b, bs) {
-            var opt = { bubbles:true, cancelable:true, view:window,
-              clientX:x, clientY:y, button:b, buttons:bs };
-            if (ECtor === PointerEvent) { opt.pointerId=1; opt.pointerType='mouse'; opt.isPrimary=true; }
-            return opt;
-          };
-          cg.dispatchEvent(new ECtor(dn, o(sx, sy, 2, 2)));
-          document.dispatchEvent(new ECtor(mv, o((sx+dx)/2, (sy+dy)/2, 0, 2)));
-          document.dispatchEvent(new ECtor(mv, o(dx, dy, 0, 2)));
-          document.dispatchEvent(new ECtor(up, o(dx, dy, 2, 0)));
-        }
-        for (var i = 0; i < shapesToClear.length; i++) {
-          var s = shapesToClear[i];
-          var src = xy(s.orig[0], parseInt(s.orig[1]));
-          var dst = xy(s.dest[0], parseInt(s.dest[1]));
-          drag(PointerEvent, 'pointerdown','pointermove','pointerup', src.x,src.y,dst.x,dst.y);
-          drag(MouseEvent,   'mousedown',  'mousemove',  'mouseup',   src.x,src.y,dst.x,dst.y);
-        }
-        return true;
-      }
-    }
-    return true; // nothing to clear (drawnShapes was already empty)
+    // API not found: remove our directly-injected SVG elements
+    var cgSvgs = Array.from(document.querySelectorAll('.cg-wrap svg'))
+                      .concat(Array.from(document.querySelectorAll('cg-board > svg')));
+    cgSvgs.forEach(function(s) {
+      s.querySelectorAll('[data-bf]').forEach(function(el) { el.remove(); });
+    });
+    return true;
   }
   // Chess.com: handled by Escape fallback in background
   return false;
@@ -639,16 +644,16 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }).then(r => r.some(x => x.result === true)).catch(() => false);
 
       if (!apiOk) {
-        // 2. Synthetic DOM events — synchronous, in-order, no timing issues
+        // 2. Direct SVG injection (Lichess: synthetic events are blocked, API not exposed)
         const synOk = await chrome.scripting.executeScript({
           target: { tabId, allFrames: false },
-          func: drawArrowOnPage,
-          args: [msg.f1, msg.r1, msg.f2, msg.r2, flipped],
+          func: drawArrowsOnPage,
+          args: [shapes, flipped],
           world: 'MAIN',
         }).then(r => r.some(x => x.result === true)).catch(() => false);
 
         if (!synOk) {
-          // 3. CDP right-click drag — last resort for chess.com (no cg-board element)
+          // 3. CDP right-click drag — last resort for chess.com (no cg-board / no SVG)
           const rect = await getRect(tabId);
           if (rect) {
             if (msg.orientation) rect.flipped = flipped;
@@ -669,7 +674,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           }
         }
       }
-      console.log('[Blindfold BG] DRAW_ARROW', msg.f1+msg.r1, '→', msg.f2+msg.r2, '| api:', apiOk, 'syn:', synOk);
+      console.log('[Blindfold BG] DRAW_ARROW', msg.f1+msg.r1, '→', msg.f2+msg.r2, '| api:', apiOk);
       sendResponse({});
     })().catch(() => sendResponse({}));
     return true;
