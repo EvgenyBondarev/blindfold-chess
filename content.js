@@ -285,46 +285,14 @@
     }));
   }
 
-  async function rewindPuzzle() {
+  function rewindPuzzle() {
     waitingForOpponent = false;
     clearTimeout(puzzleTimeout);
     puzzleComplete = false;
     seqBranches = [];
     lastActiveSAN = '';
-
-    // Read the first puzzle move's SAN from .puzzle__moves (text-only, no side effects).
-    // Separate from board navigation — ArrowLeft moves the game-context viewer, not this list.
-    const puzzleMoves = document.querySelector('.puzzle__moves');
-    let firstMoveSAN = null;
-    if (puzzleMoves) {
-      let firstMove = null;
-      for (const idx of puzzleMoves.querySelectorAll('index')) {
-        if (idx.textContent.trim() === '1') {
-          let sib = idx.nextElementSibling;
-          while (sib && sib.tagName.toLowerCase() !== 'move') sib = sib.nextElementSibling;
-          firstMove = sib;
-          break;
-        }
-      }
-      if (!firstMove) firstMove = puzzleMoves.querySelector('move');
-      firstMoveSAN = firstMove?.textContent.trim() || null;
-    }
-
-    // Navigate the board back via ArrowLeft. ArrowLeft moves the game-context viewer
-    // through the full game (not just puzzle moves), so we need enough presses to
-    // clear a typical game (up to ~100 half-moves = 50 full moves).
-    navigating = true;
-    for (let i = 0; i < 100; i++) {
-      document.body.dispatchEvent(new KeyboardEvent('keydown', {
-        key: 'ArrowLeft', code: 'ArrowLeft', bubbles: true, cancelable: true,
-      }));
-      await new Promise(r => setTimeout(r, 20));
-    }
-    await new Promise(r => setTimeout(r, 150));
-    navigating = false;
     moveBuffer = ''; pendingDisambig = null; queuedKey = null;
-
-    if (firstMoveSAN && settings.moveNarration) speak(readSAN(firstMoveSAN));
+    // The move observer announces the opponent's first move when Lichess auto-plays it.
   }
 
   // ── Pseudo-legal move check ─────────────────────────────────────────────────
