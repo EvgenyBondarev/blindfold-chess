@@ -146,15 +146,36 @@ function getPageState() {
     }
     if (!pieces) pieces = parseLichessPieces(oriented);
 
-    // Method 3: sanity-check orientation via king positions
-    if (oriented === 'white') {
-      // Black king should never start at rank ≤ 2; if it does, board is flipped
-      var bk = Object.values(pieces).find(function(p) { return p.color === 'black' && p.type === 'king'; });
-      if (bk && bk.rank <= 2) { oriented = 'black'; if (!cgApi) pieces = parseLichessPieces('black'); }
+    // Orientation correction.
+    // FEN path: piece ranks are always correct so rank-based heuristics don't apply
+    // (e.g. a king at h7/f8 would falsely trigger them). Instead, compare a king's
+    // CSS transform column against the column its FEN file predicts for each orientation.
+    // CSS path: fall back to rank heuristic (wrong orientation makes kings appear at rank 1/8).
+    if (typeof fenPieces !== 'undefined' && pieces === fenPieces) {
+      var F2N_c = {a:1,b:2,c:3,d:4,e:5,f:6,g:7,h:8};
+      var ck = Object.values(fenPieces).find(function(p) { return p.type === 'king'; });
+      if (ck) {
+        var ckEl = Array.from(cgBoard.querySelectorAll('piece')).find(function(el) {
+          var c = el.className || ''; return c.indexOf(ck.color) !== -1 && c.indexOf('king') !== -1;
+        });
+        if (ckEl) {
+          var ckTf = ckEl.style.transform || '';
+          var ckM = ckTf.match(/translate\(\s*([-\d.]+)px[^,]*,\s*([-\d.]+)px/) ||
+                    ckTf.match(/translate3d\(\s*([-\d.]+)px[^,]*,\s*([-\d.]+)px/);
+          if (ckM) {
+            var ckCol = Math.round(parseFloat(ckM[1]) / sqCss);
+            oriented = (ckCol === 8 - F2N_c[ck.file]) ? 'black' : 'white';
+          }
+        }
+      }
     } else {
-      // White king should never start at rank ≥ 7 in black orientation; if it does, board is not flipped
-      var wk = Object.values(pieces).find(function(p) { return p.color === 'white' && p.type === 'king'; });
-      if (wk && wk.rank >= 7) { oriented = 'white'; if (!cgApi) pieces = parseLichessPieces('white'); }
+      if (oriented === 'white') {
+        var bk = Object.values(pieces).find(function(p) { return p.color === 'black' && p.type === 'king'; });
+        if (bk && bk.rank <= 2) { oriented = 'black'; if (!cgApi) pieces = parseLichessPieces('black'); }
+      } else {
+        var wk = Object.values(pieces).find(function(p) { return p.color === 'white' && p.type === 'king'; });
+        if (wk && wk.rank >= 7) { oriented = 'white'; if (!cgApi) pieces = parseLichessPieces('white'); }
+      }
     }
 
     console.log('[Blindfold] lichess orientation:', oriented, 'pieces:', Object.keys(pieces).length);
