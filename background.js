@@ -12,17 +12,20 @@ function getPageState() {
     if (!sqCss) return { pieces: {}, orientation: 'white', count: 0, site: 'lichess' };
     if (!sq) sq = sqCss;
 
-    // ── Orientation detection (3 methods) ─────────────────────────────────────
+    // ── Orientation detection (2 methods) ─────────────────────────────────────
     var oriented = 'white';
+    var orientationFromDOM = false;
     // Method 1: walk parent elements for an orientation class or data attribute
     var scanEl = cgBoard.parentElement;
     while (scanEl && scanEl !== document.body) {
       if (/\borientation-black\b/.test(scanEl.className || '') ||
-          scanEl.getAttribute('data-orientation') === 'black') { oriented = 'black'; break; }
+          scanEl.getAttribute('data-orientation') === 'black') {
+        oriented = 'black'; orientationFromDOM = true; break;
+      }
       scanEl = scanEl.parentElement;
     }
     // Method 2: rank coord labels — find '1' and check if it's visually at top or bottom
-    if (oriented === 'white') {
+    if (!orientationFromDOM) {
       var ranksEl = document.querySelector('coords.ranks');
       if (ranksEl) {
         var coord1 = Array.from(ranksEl.querySelectorAll('coord')).find(function(c) {
@@ -31,7 +34,7 @@ function getPageState() {
         if (coord1) {
           var r1 = coord1.getBoundingClientRect();
           // If rank '1' label is in the top half of the board, the board is flipped
-          if (r1.top < cgRect.top + cgRect.height / 2) oriented = 'black';
+          if (r1.top < cgRect.top + cgRect.height / 2) { oriented = 'black'; orientationFromDOM = true; }
         }
       }
     }
@@ -168,7 +171,10 @@ function getPageState() {
           }
         }
       }
-    } else {
+    } else if (!orientationFromDOM) {
+      // CSS rank heuristic — only runs when neither DOM method gave an answer,
+      // because a legitimate piece position (e.g. white king at h7) would otherwise
+      // wrongly flip a correctly-detected orientation.
       if (oriented === 'white') {
         var bk = Object.values(pieces).find(function(p) { return p.color === 'black' && p.type === 'king'; });
         if (bk && bk.rank <= 2) { oriented = 'black'; if (!cgApi) pieces = parseLichessPieces('black'); }
