@@ -1,7 +1,5 @@
 'use strict';
 
-chrome.tts.getVoices(voices => console.log('[Blindfold TTS voices]', voices.map(v => v.voiceName)));
-
 // ── GET_STATE (runs in MAIN world via executeScript) ─────────────────────────
 function getPageState() {
   // ── Lichess (chessground) ──────────────────────────────────────────────────
@@ -523,11 +521,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
   // SPEAK / SPEAK_QUEUED — routed through background to bypass page autoplay restrictions
   if (msg.type === 'SPEAK') {
-    chrome.tts.speak(msg.text, { voiceName: 'Microsoft David Desktop', rate: 1.6, enqueue: false });
+    chrome.tts.speak(msg.text, { voiceName: 'Microsoft David - English (United States)', rate: 1.6, enqueue: false });
     return false;
   }
   if (msg.type === 'SPEAK_QUEUED') {
-    chrome.tts.speak(msg.text, { voiceName: 'Microsoft David Desktop', rate: 1.6, enqueue: true });
+    chrome.tts.speak(msg.text, { voiceName: 'Microsoft David - English (United States)', rate: 1.6, enqueue: true });
     return false;
   }
 
