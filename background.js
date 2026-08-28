@@ -221,21 +221,6 @@ function getPageState() {
   return { pieces: pieces, orientation: orientation, count: Object.keys(pieces).length, site: 'chesscom' };
 }
 
-// ── Shared synthetic mouse event helper (inline in each injectable) ──────────
-// Dispatches a right-click drag on cg-board using synthetic DOM events.
-// These are synchronous and in-order — unlike CDP which is async/cross-process.
-function _cgMouseDrag(cg, sx, sy, dx, dy) {
-  var mx = (sx + dx) / 2, my = (sy + dy) / 2;
-  function ev(t, x, y, btn, btns) {
-    return new MouseEvent(t, { bubbles:true, cancelable:true, view:window,
-      clientX:x, clientY:y, button:btn, buttons:btns });
-  }
-  cg.dispatchEvent(ev('mousedown', sx, sy, 2, 2));
-  cg.dispatchEvent(ev('mousemove', mx, my,  0, 2));
-  cg.dispatchEvent(ev('mousemove', dx, dy,  0, 2));
-  document.dispatchEvent(ev('mouseup', dx, dy, 2, 0));
-}
-
 // ── DRAW_ARROW_SYNTHETIC (runs in MAIN world via executeScript) ───────────────
 function drawArrowOnPage(f1, r1, f2, r2, flipped) {
   var cg = document.querySelector('cg-board');
@@ -250,7 +235,15 @@ function drawArrowOnPage(f1, r1, f2, r2, flipped) {
     return { x: rect.left + col*sq + sq/2, y: rect.top + row*sq + sq/2 };
   }
   var src = xy(f1, r1), dst = xy(f2, r2);
-  _cgMouseDrag(cg, src.x, src.y, dst.x, dst.y);
+  var mx = (src.x + dst.x) / 2, my = (src.y + dst.y) / 2;
+  function ev(t, x, y, btn, btns) {
+    return new MouseEvent(t, { bubbles:true, cancelable:true, view:window,
+      clientX:x, clientY:y, button:btn, buttons:btns });
+  }
+  cg.dispatchEvent(ev('mousedown', src.x, src.y, 2, 2));
+  cg.dispatchEvent(ev('mousemove', mx, my, 0, 2));
+  cg.dispatchEvent(ev('mousemove', dst.x, dst.y, 0, 2));
+  document.dispatchEvent(ev('mouseup', dst.x, dst.y, 2, 0));
   return true;
 }
 
@@ -296,11 +289,19 @@ function clearPageDrawings(shapesToClear, flipped) {
           var row = flipped ? rank - 1 : 8 - rank;
           return { x: rect.left + col*sq + sq/2, y: rect.top + row*sq + sq/2 };
         }
+        function ev(t, x, y, btn, btns) {
+          return new MouseEvent(t, { bubbles:true, cancelable:true, view:window,
+            clientX:x, clientY:y, button:btn, buttons:btns });
+        }
         for (var i = 0; i < shapesToClear.length; i++) {
           var s = shapesToClear[i];
           var src = xy(s.orig[0], parseInt(s.orig[1]));
           var dst = xy(s.dest[0], parseInt(s.dest[1]));
-          _cgMouseDrag(cg, src.x, src.y, dst.x, dst.y);
+          var mx = (src.x + dst.x) / 2, my = (src.y + dst.y) / 2;
+          cg.dispatchEvent(ev('mousedown', src.x, src.y, 2, 2));
+          cg.dispatchEvent(ev('mousemove', mx, my, 0, 2));
+          cg.dispatchEvent(ev('mousemove', dst.x, dst.y, 0, 2));
+          document.dispatchEvent(ev('mouseup', dst.x, dst.y, 2, 0));
         }
         return true;
       }
