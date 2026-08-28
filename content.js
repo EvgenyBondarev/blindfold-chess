@@ -67,6 +67,7 @@
   let mode             = 'moves';
   let moveBuffer       = '';
   let drawBuffer       = '';
+  let drawnShapes      = [];  // [{orig,dest,brush}] — full list sent to setShapes each time
   let drawTimer        = null;
   let busy             = false;
   let gameActive       = false;
@@ -291,7 +292,7 @@
     puzzleComplete = false;
     seqBranches = [];
     lastActiveSAN = '';
-    moveBuffer = ''; pendingDisambig = null; queuedKey = null;
+    moveBuffer = ''; pendingDisambig = null; queuedKey = null; drawnShapes = [];
     // The move observer announces the opponent's first move when Lichess auto-plays it.
   }
 
@@ -687,7 +688,7 @@
       }
       if (e.key === 'c') {
         e.preventDefault(); e.stopPropagation();
-        drawBuffer = ''; send({ type: 'CLEAR_DRAWINGS' });
+        drawBuffer = ''; drawnShapes = []; send({ type: 'CLEAR_DRAWINGS' });
         return;
       }
       if (!FILE_RANK_KEYS.has(e.key)) return;
@@ -697,7 +698,10 @@
         const f1 = FILE_FROM_KEY[drawBuffer[0]], r1 = RANK_FROM_KEY[drawBuffer[1]];
         const f2 = FILE_FROM_KEY[drawBuffer[2]], r2 = RANK_FROM_KEY[drawBuffer[3]];
         drawBuffer = '';
-        if (f1 && r1 && f2 && r2) send({ type: 'DRAW_ARROW', f1, r1, f2, r2, orientation: playerColor });
+        if (f1 && r1 && f2 && r2) {
+          drawnShapes.push({ orig: f1 + r1, dest: f2 + r2, brush: 'green' });
+          send({ type: 'DRAW_ARROW', shapes: drawnShapes, f1, r1, f2, r2, orientation: playerColor });
+        }
       }
       return;
     }
@@ -709,7 +713,7 @@
       if (e.key === 'g') { e.preventDefault(); e.stopPropagation(); navKey('ArrowLeft'); return; }
       if (e.key === 'h') { e.preventDefault(); e.stopPropagation(); navKey('ArrowRight'); return; }
       if (e.key === 'm') { e.preventDefault(); e.stopPropagation(); mode = 'draw'; drawBuffer = ''; speak('draw'); return; }
-      if (e.key === 'c') { e.preventDefault(); e.stopPropagation(); send({ type: 'CLEAR_DRAWINGS' }); return; }
+      if (e.key === 'c') { e.preventDefault(); e.stopPropagation(); drawnShapes = []; send({ type: 'CLEAR_DRAWINGS' }); return; }
     }
 
     const valid = moveBuffer.length === 0 ? PIECE_KEYS : FILE_RANK_KEYS;

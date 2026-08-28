@@ -319,6 +319,34 @@ function getBoardRect() {
   return { left: r.left, top: r.top, width: r.width, flipped: flipped, site: 'chesscom' };
 }
 
+// ── SET_SHAPES (runs in MAIN world via executeScript) ────────────────────────
+function setPageShapes(shapes) {
+  if (!document.querySelector('cg-board')) return false;
+  var wrap = document.querySelector('.cg-wrap');
+  if (wrap) {
+    var direct = wrap.cg || wrap.__cg || wrap.chessground;
+    if (direct && typeof direct.setShapes === 'function') { direct.setShapes(shapes); return true; }
+  }
+  var seen = new Set();
+  function find(obj, d) {
+    if (d > 4 || !obj || seen.has(obj)) return null;
+    var tp = typeof obj;
+    if (tp !== 'object' && tp !== 'function') return null;
+    seen.add(obj);
+    try {
+      if (typeof obj.setShapes === 'function' && typeof obj.getFen === 'function') return obj;
+      var ks = Object.keys(obj);
+      for (var i = 0; i < Math.min(ks.length, 25); i++) {
+        try { var r = find(obj[ks[i]], d + 1); if (r) return r; } catch(e) {}
+      }
+    } catch(e) {}
+    return null;
+  }
+  var api = find(window, 0);
+  if (api) { api.setShapes(shapes); return true; }
+  return false;
+}
+
 // ── Chrome Debugger Protocol helpers ─────────────────────────────────────────
 // Keep the debugger attached for the whole game (banner appears once, not per move).
 const debuggedTabs = new Set();
@@ -509,25 +537,35 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
-  // DRAW_ARROW — right-click drag via CDP (chess.com) or DOM events (lichess)
+  // DRAW_ARROW — use chessground setShapes API (Lichess); CDP right-click drag fallback (chess.com)
   if (msg.type === 'DRAW_ARROW') {
     (async () => {
-      const rect = await getRect(tabId);
-      if (!rect) { sendResponse({}); return; }
-      if (msg.orientation) rect.flipped = (msg.orientation === 'black');
-      const src = squareXY(rect, msg.f1, msg.r1);
-      const dst = squareXY(rect, msg.f2, msg.r2);
-      const mid = { x: Math.round((src.x + dst.x) / 2), y: Math.round((src.y + dst.y) / 2) };
+      const shapes = msg.shapes || [{ orig: msg.f1 + msg.r1, dest: msg.f2 + msg.r2, brush: 'green' }];
+      const apiOk = await chrome.scripting.executeScript({
+        target: { tabId, allFrames: true },
+        func: setPageShapes,
+        args: [shapes],
+        world: 'MAIN',
+      }).then(r => r.some(x => x.result === true)).catch(() => false);
 
-      await ensureAttached(tabId);
-      await dbgCmd(tabId, 'Input.dispatchMouseEvent',
-        { type: 'mousePressed',  x: src.x, y: src.y, button: 'right', buttons: 2, clickCount: 1, pointerType: 'mouse' });
-      await dbgCmd(tabId, 'Input.dispatchMouseEvent',
-        { type: 'mouseMoved',    x: mid.x, y: mid.y, button: 'none',  buttons: 2, pointerType: 'mouse' });
-      await dbgCmd(tabId, 'Input.dispatchMouseEvent',
-        { type: 'mouseMoved',    x: dst.x, y: dst.y, button: 'none',  buttons: 2, pointerType: 'mouse' });
-      await dbgCmd(tabId, 'Input.dispatchMouseEvent',
-        { type: 'mouseReleased', x: dst.x, y: dst.y, button: 'right', buttons: 0, clickCount: 1, pointerType: 'mouse' });
+      if (!apiOk) {
+        // Fallback: CDP right-click drag (chess.com or API unavailable)
+        const rect = await getRect(tabId);
+        if (!rect) { sendResponse({}); return; }
+        if (msg.orientation) rect.flipped = (msg.orientation === 'black');
+        const src = squareXY(rect, msg.f1, msg.r1);
+        const dst = squareXY(rect, msg.f2, msg.r2);
+        const mid = { x: Math.round((src.x + dst.x) / 2), y: Math.round((src.y + dst.y) / 2) };
+        await ensureAttached(tabId);
+        await dbgCmd(tabId, 'Input.dispatchMouseEvent',
+          { type: 'mousePressed',  x: src.x, y: src.y, button: 'right', buttons: 2, clickCount: 1, pointerType: 'mouse' });
+        await dbgCmd(tabId, 'Input.dispatchMouseEvent',
+          { type: 'mouseMoved',    x: mid.x, y: mid.y, button: 'none',  buttons: 2, pointerType: 'mouse' });
+        await dbgCmd(tabId, 'Input.dispatchMouseEvent',
+          { type: 'mouseMoved',    x: dst.x, y: dst.y, button: 'none',  buttons: 2, pointerType: 'mouse' });
+        await dbgCmd(tabId, 'Input.dispatchMouseEvent',
+          { type: 'mouseReleased', x: dst.x, y: dst.y, button: 'right', buttons: 0, clickCount: 1, pointerType: 'mouse' });
+      }
       sendResponse({});
     })().catch(() => sendResponse({}));
     return true;
