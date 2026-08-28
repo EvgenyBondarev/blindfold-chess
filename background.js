@@ -221,85 +221,80 @@ function getPageState() {
   return { pieces: pieces, orientation: orientation, count: Object.keys(pieces).length, site: 'chesscom' };
 }
 
-// ── DRAW_ARROWS_SVG (runs in MAIN world via executeScript) ───────────────────
-// Injects SVG elements directly into chessground's drawing SVG.
-// Synthetic events are blocked by Lichess (isTrusted check), so we bypass
-// chessground's event system entirely. Since we never set drawable.dirty,
-// chessground won't re-render and wipe our elements on piece moves.
-function drawArrowsOnPage(shapes, flipped) {
-  var cg = document.querySelector('cg-board');
-  if (!cg) return false;
-  var sq = cg.clientWidth / 8;
-  if (!sq) return false;
-  var svg = cg.querySelector('svg') || document.querySelector('.cg-wrap svg');
-  if (!svg) return false;
+// ── OVERLAY_ARROWS (runs in MAIN world via executeScript) ────────────────────
+// Draws a fixed-position SVG overlay on top of the board.
+// Uses pixel coordinates from getBoardRect, so it works on both Lichess and
+// Chess.com without needing to find chessground's internal SVG structure.
+// Arrowheads are polygon elements (no <marker>) to avoid url(#id) base-href issues.
+function overlayArrows(shapes, board) {
+  var NS  = 'http://www.w3.org/2000/svg';
+  var ID  = 'bf-arrow-overlay';
+  var old = document.getElementById(ID);
+  if (old) old.remove();
+  if (!shapes || !shapes.length) return true;
 
-  var NS = 'http://www.w3.org/2000/svg';
-  var color = '#15781B'; // chessground green brush color
-  var lw = sq * 0.15;
-  var FN = {a:1,b:2,c:3,d:4,e:5,f:6,g:7,h:8};
+  var size  = board.width;
+  var sq    = size / 8;
+  var FN    = {a:1,b:2,c:3,d:4,e:5,f:6,g:7,h:8};
+  var color = '#15781B';
+  var lw    = sq * 0.15;
 
   function xy(file, rank) {
-    var col = flipped ? 8 - FN[file] : FN[file] - 1;
-    var row = flipped ? rank - 1 : 8 - rank;
+    var col = board.flipped ? 8 - FN[file] : FN[file] - 1;
+    var row = board.flipped ? rank - 1      : 8 - rank;
     return { x: col*sq + sq/2, y: row*sq + sq/2 };
   }
 
-  // Remove previously injected shapes
-  svg.querySelectorAll('[data-bf]').forEach(function(el) { el.remove(); });
-
-  // Ensure arrowhead marker exists in defs
-  var markId = 'bf-arrow';
-  if (!svg.querySelector('#' + markId)) {
-    var defs = svg.querySelector('defs');
-    if (!defs) { defs = document.createElementNS(NS, 'defs'); svg.insertBefore(defs, svg.firstChild); }
-    var marker = document.createElementNS(NS, 'marker');
-    marker.setAttribute('id', markId);
-    marker.setAttribute('orient', 'auto');
-    marker.setAttribute('markerWidth', '4');
-    marker.setAttribute('markerHeight', '8');
-    marker.setAttribute('refX', '2.05');
-    marker.setAttribute('refY', '2.01');
-    var mp = document.createElementNS(NS, 'path');
-    mp.setAttribute('d', 'M0,0 V4 L3,2 Z');
-    mp.setAttribute('fill', color);
-    marker.appendChild(mp);
-    defs.appendChild(marker);
-  }
+  var svg = document.createElementNS(NS, 'svg');
+  svg.id = ID;
+  svg.style.cssText = 'position:fixed;left:' + board.left + 'px;top:' + board.top + 'px;' +
+    'width:' + size + 'px;height:' + size + 'px;pointer-events:none;z-index:9999;overflow:visible;';
+  svg.setAttribute('viewBox', '0 0 ' + size + ' ' + size);
 
   shapes.forEach(function(shape) {
     var f1 = shape.orig[0], r1 = parseInt(shape.orig[1]);
     var f2 = shape.dest[0], r2 = parseInt(shape.dest[1]);
+    if (!FN[f1] || !FN[f2] || !r1 || !r2) return;
     var src = xy(f1, r1), dst = xy(f2, r2);
-    var el;
+
     if (f1 === f2 && r1 === r2) {
-      el = document.createElementNS(NS, 'circle');
-      el.setAttribute('cx', src.x);
-      el.setAttribute('cy', src.y);
-      el.setAttribute('r', lw * 3.5);
-      el.setAttribute('fill', 'none');
-      el.setAttribute('stroke', color);
-      el.setAttribute('stroke-width', lw);
-      el.setAttribute('opacity', '0.6');
+      var c = document.createElementNS(NS, 'circle');
+      c.setAttribute('cx', src.x); c.setAttribute('cy', src.y);
+      c.setAttribute('r', lw * 3.5);
+      c.setAttribute('fill', 'none');
+      c.setAttribute('stroke', color);
+      c.setAttribute('stroke-width', lw);
+      c.setAttribute('opacity', '0.6');
+      svg.appendChild(c);
     } else {
       var dx = dst.x - src.x, dy = dst.y - src.y;
       var len = Math.sqrt(dx*dx + dy*dy);
-      var margin = lw * 4;
-      el = document.createElementNS(NS, 'line');
-      el.setAttribute('x1', src.x);
-      el.setAttribute('y1', src.y);
-      el.setAttribute('x2', dst.x - dx/len * margin);
-      el.setAttribute('y2', dst.y - dy/len * margin);
-      el.setAttribute('stroke', color);
-      el.setAttribute('stroke-width', lw);
-      el.setAttribute('marker-end', 'url(#' + markId + ')');
-      el.setAttribute('opacity', '1');
+      if (!len) return;
+      var ux = dx/len, uy = dy/len;
+      var nx = -uy, ny = ux;       // unit perpendicular
+      var aw = lw * 2.5, al = lw * 5;  // arrowhead half-width, full length
+      var baseX = dst.x - ux*al, baseY = dst.y - uy*al;
+
+      var line = document.createElementNS(NS, 'line');
+      line.setAttribute('x1', src.x); line.setAttribute('y1', src.y);
+      line.setAttribute('x2', baseX); line.setAttribute('y2', baseY);
+      line.setAttribute('stroke', color);
+      line.setAttribute('stroke-width', lw);
+      svg.appendChild(line);
+
+      var poly = document.createElementNS(NS, 'polygon');
+      poly.setAttribute('points',
+        dst.x+','+dst.y+' '+
+        (baseX+nx*aw)+','+(baseY+ny*aw)+' '+
+        (baseX-nx*aw)+','+(baseY-ny*aw));
+      poly.setAttribute('fill', color);
+      svg.appendChild(poly);
     }
-    el.setAttribute('data-bf', '1');
-    svg.appendChild(el);
   });
 
-  console.log('[Blindfold] drawArrowsOnPage: injected', shapes.length, 'shapes');
+  document.body.appendChild(svg);
+  console.log('[Blindfold] overlay: drew', shapes.length, 'shape(s) at board',
+    Math.round(board.left), Math.round(board.top), Math.round(size));
   return true;
 }
 
@@ -606,18 +601,25 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
-  // CLEAR_DRAWINGS — executeScript for lichess (Chessground API or synthetic toggle-off), Escape for chess.com
+  // CLEAR_DRAWINGS — remove overlay, then try chessground setShapes([])
   if (msg.type === 'CLEAR_DRAWINGS') {
     (async () => {
-      const flipped = msg.orientation === 'black';
+      // Always remove our overlay (fast path)
+      await chrome.scripting.executeScript({
+        target: { tabId, allFrames: false },
+        func: () => { var el = document.getElementById('bf-arrow-overlay'); if (el) el.remove(); },
+        world: 'MAIN',
+      }).catch(() => {});
+      // Also clear via chessground API if it was the one drawing (Lichess)
       const results = await chrome.scripting.executeScript({
         target: { tabId, allFrames: false },
         func: clearPageDrawings,
-        args: [msg.shapes || [], flipped],
+        args: [msg.shapes || [], msg.orientation === 'black'],
         world: 'MAIN',
       }).catch(() => []);
       const handled = results.some(r => r.result === true);
       if (!handled) {
+        // Chess.com fallback: send Escape key via CDP
         await ensureAttached(tabId);
         await dbgCmd(tabId, 'Input.dispatchKeyEvent',
           { type: 'keyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
@@ -629,13 +631,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
-  // DRAW_ARROW — setShapes API (best); synthetic DOM events (Lichess fallback); CDP (chess.com last resort)
+  // DRAW_ARROW — setShapes API (best); fixed overlay SVG fallback (works on both sites)
   if (msg.type === 'DRAW_ARROW') {
     (async () => {
       const flipped = msg.orientation === 'black';
       const shapes  = msg.shapes || [{ orig: msg.f1 + msg.r1, dest: msg.f2 + msg.r2, brush: 'green' }];
 
-      // 1. Try chessground setShapes API (atomically replaces all shapes)
+      // 1. Try chessground setShapes API (Lichess, atomically replaces all shapes)
       const apiOk = await chrome.scripting.executeScript({
         target: { tabId, allFrames: false },
         func: setPageShapes,
@@ -644,36 +646,19 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }).then(r => r.some(x => x.result === true)).catch(() => false);
 
       if (!apiOk) {
-        // 2. Direct SVG injection (Lichess: synthetic events are blocked, API not exposed)
-        const synOk = await chrome.scripting.executeScript({
-          target: { tabId, allFrames: false },
-          func: drawArrowsOnPage,
-          args: [shapes, flipped],
-          world: 'MAIN',
-        }).then(r => r.some(x => x.result === true)).catch(() => false);
-
-        if (!synOk) {
-          // 3. CDP right-click drag — last resort for chess.com (no cg-board / no SVG)
-          const rect = await getRect(tabId);
-          if (rect) {
-            if (msg.orientation) rect.flipped = flipped;
-            const src = squareXY(rect, msg.f1, msg.r1);
-            const dst = squareXY(rect, msg.f2, msg.r2);
-            const mid = { x: Math.round((src.x + dst.x) / 2), y: Math.round((src.y + dst.y) / 2) };
-            await ensureAttached(tabId);
-            await dbgCmd(tabId, 'Input.dispatchMouseEvent',
-              { type: 'mousePressed',  x: src.x, y: src.y, button: 'right', buttons: 2, clickCount: 1, pointerType: 'mouse' });
-            await new Promise(r => setTimeout(r, 40));
-            await dbgCmd(tabId, 'Input.dispatchMouseEvent',
-              { type: 'mouseMoved',    x: mid.x, y: mid.y, button: 'none',  buttons: 2, pointerType: 'mouse' });
-            await dbgCmd(tabId, 'Input.dispatchMouseEvent',
-              { type: 'mouseMoved',    x: dst.x, y: dst.y, button: 'none',  buttons: 2, pointerType: 'mouse' });
-            await new Promise(r => setTimeout(r, 20));
-            await dbgCmd(tabId, 'Input.dispatchMouseEvent',
-              { type: 'mouseReleased', x: dst.x, y: dst.y, button: 'right', buttons: 0, clickCount: 1, pointerType: 'mouse' });
-          }
+        // 2. Fixed overlay SVG positioned over the board using getBoundingClientRect coords
+        const rect = await getRect(tabId);
+        if (rect) {
+          if (msg.orientation) rect.flipped = flipped;
+          await chrome.scripting.executeScript({
+            target: { tabId, allFrames: false },
+            func: overlayArrows,
+            args: [shapes, { left: rect.left, top: rect.top, width: rect.width, flipped: rect.flipped }],
+            world: 'MAIN',
+          }).catch(() => {});
         }
       }
+
       console.log('[Blindfold BG] DRAW_ARROW', msg.f1+msg.r1, '→', msg.f2+msg.r2, '| api:', apiOk);
       sendResponse({});
     })().catch(() => sendResponse({}));
