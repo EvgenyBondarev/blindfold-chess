@@ -417,7 +417,7 @@
 
       await send({ type: 'CLICK_MOVE',
                    srcFile: src.file, srcRank: src.rank,
-                   dstFile, dstRank, isPromotion });
+                   dstFile, dstRank, isPromotion, orientation: playerColor });
     } finally {
       busy = false;
     }
@@ -692,7 +692,7 @@
         const f1 = FILE_FROM_KEY[drawBuffer[0]], r1 = RANK_FROM_KEY[drawBuffer[1]];
         const f2 = FILE_FROM_KEY[drawBuffer[2]], r2 = RANK_FROM_KEY[drawBuffer[3]];
         drawBuffer = ''; mode = 'moves';
-        if (f1 && r1 && f2 && r2) send({ type: 'DRAW_ARROW', f1, r1, f2, r2 });
+        if (f1 && r1 && f2 && r2) send({ type: 'DRAW_ARROW', f1, r1, f2, r2, orientation: playerColor });
       }
       return;
     }

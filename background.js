@@ -420,6 +420,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     (async () => {
       const rect = await getRect(tabId);
       if (!rect) { sendResponse({ done: false }); return; }
+      if (msg.orientation) rect.flipped = (msg.orientation === 'black');
 
       const src = squareXY(rect, msg.srcFile, msg.srcRank);
       const dst = squareXY(rect, msg.dstFile, msg.dstRank);
@@ -513,6 +514,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     (async () => {
       const rect = await getRect(tabId);
       if (!rect) { sendResponse({}); return; }
+      if (msg.orientation) rect.flipped = (msg.orientation === 'black');
       const src = squareXY(rect, msg.f1, msg.r1);
       const dst = squareXY(rect, msg.f2, msg.r2);
       const mid = { x: Math.round((src.x + dst.x) / 2), y: Math.round((src.y + dst.y) / 2) };
