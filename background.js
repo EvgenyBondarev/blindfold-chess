@@ -519,6 +519,16 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (!sender.tab) return;
   const tabId = sender.tab.id;
 
+  // SPEAK / SPEAK_QUEUED — routed through background to bypass page autoplay restrictions
+  if (msg.type === 'SPEAK') {
+    chrome.tts.speak(msg.text, { rate: 1.6, enqueue: false });
+    return false;
+  }
+  if (msg.type === 'SPEAK_QUEUED') {
+    chrome.tts.speak(msg.text, { rate: 1.6, enqueue: true });
+    return false;
+  }
+
   // GET_STATE — polls until two consecutive reads give the same position (animation settled)
   if (msg.type === 'GET_STATE') {
     (async () => {

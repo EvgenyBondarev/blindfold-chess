@@ -117,30 +117,14 @@
     });
   }
 
-  // ── TTS ─────────────────────────────────────────────────────────────────────
-  let _currentUtterance = null;
-  let _queuedText       = null;
-
+  // ── TTS — routed through background to bypass page autoplay restrictions ─────
   function speak(text) {
-    if (!window.speechSynthesis) return;
-    _queuedText = null;
-    window.speechSynthesis.cancel();
-    const u = new SpeechSynthesisUtterance(text);
-    u.rate = 1.6;
-    u.onend = () => {
-      if (_currentUtterance === u && _queuedText) {
-        const t = _queuedText; _queuedText = null; speak(t);
-      }
-    };
-    _currentUtterance = u;
-    window.speechSynthesis.speak(u);
+    chrome.runtime.sendMessage({ type: 'SPEAK', text });
   }
 
   // Plays text after the current utterance finishes instead of cutting it off.
   function speakQueued(text) {
-    if (!window.speechSynthesis) return;
-    if (!window.speechSynthesis.speaking) { speak(text); return; }
-    _queuedText = text;
+    chrome.runtime.sendMessage({ type: 'SPEAK_QUEUED', text });
   }
 
   // ── Puzzle audio feedback ────────────────────────────────────────────────────
@@ -403,7 +387,7 @@
         parts.push(color + ' ' + (sq.length > 1 ? type + 's' : type) + ' ' + sq.join(' '));
       }
     }
-    if (parts.length) setTimeout(() => speak(parts.join('. ')), 0);
+    if (parts.length) speak(parts.join('. '));
   }
 
   // ── Move execution ──────────────────────────────────────────────────────────
