@@ -413,7 +413,7 @@
     busy = true;
     try {
       if (!candidates) {
-        await new Promise(r => setTimeout(r, 150));
+        await new Promise(r => setTimeout(r, 200));
         const state  = await send({ type: 'GET_STATE' });
         const pieces = state.pieces || {};
         playerColor  = state.orientation || playerColor;

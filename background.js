@@ -418,12 +418,16 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       await ensureAttached(tabId);
 
       if (rect.site === 'lichess') {
-        // Click-click: select piece, wait, click destination
+        // Hover → click src, wait for chessground to register selection, hover → click dst
+        await dbgCmd(tabId, 'Input.dispatchMouseEvent',
+          { type: 'mouseMoved',    x: src.x, y: src.y, button: 'none',  buttons: 0, pointerType: 'mouse' });
         await dbgCmd(tabId, 'Input.dispatchMouseEvent',
           { type: 'mousePressed',  x: src.x, y: src.y, button: 'left', buttons: 1, clickCount: 1, pointerType: 'mouse' });
         await dbgCmd(tabId, 'Input.dispatchMouseEvent',
           { type: 'mouseReleased', x: src.x, y: src.y, button: 'left', buttons: 0, clickCount: 1, pointerType: 'mouse' });
-        await new Promise(r => setTimeout(r, 80));
+        await new Promise(r => setTimeout(r, 150));
+        await dbgCmd(tabId, 'Input.dispatchMouseEvent',
+          { type: 'mouseMoved',    x: dst.x, y: dst.y, button: 'none',  buttons: 0, pointerType: 'mouse' });
         await dbgCmd(tabId, 'Input.dispatchMouseEvent',
           { type: 'mousePressed',  x: dst.x, y: dst.y, button: 'left', buttons: 1, clickCount: 1, pointerType: 'mouse' });
         await dbgCmd(tabId, 'Input.dispatchMouseEvent',
