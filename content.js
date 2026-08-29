@@ -372,22 +372,47 @@
   // ── Position narration ──────────────────────────────────────────────────────
   function narratePosition(pieces) {
     if (!pieces) return;
-    const ORDER = ['king', 'queen', 'rook', 'bishop', 'knight', 'pawn'];
-    const groups = {};
-    for (const p of Object.values(pieces)) {
-      const key = p.color + '|' + p.type;
-      (groups[key] = groups[key] || []).push(p.file + p.rank);
+    const myColor  = playerColor || 'white';
+    const oppColor = myColor === 'white' ? 'black' : 'white';
+    // Left → center → right from the player's perspective
+    const FILE_ORDER = myColor === 'white'
+      ? ['a','b','c','d','e','f','g','h']
+      : ['h','g','f','e','d','c','b','a'];
+    const SECTIONS = myColor === 'white'
+      ? [['a','b','c'], ['d','e'], ['f','g','h']]
+      : [['h','g','f'], ['e','d'], ['c','b','a']];
+
+    function label(p) {
+      return p.type === 'pawn' ? p.file + p.rank : p.type + ' ' + p.file + p.rank;
     }
-    const parts = [];
-    for (const color of ['white', 'black']) {
-      for (const type of ORDER) {
-        const sq = groups[color + '|' + type];
-        if (!sq) continue;
-        sq.sort();
-        parts.push(color + ' ' + (sq.length > 1 ? type + 's' : type) + ' ' + sq.join(' '));
+
+    function narrate(color) {
+      const ps = Object.values(pieces)
+        .filter(p => p.color === color)
+        .sort((a, b) => {
+          const fd = FILE_ORDER.indexOf(a.file) - FILE_ORDER.indexOf(b.file);
+          return fd !== 0 ? fd : a.rank - b.rank;
+        });
+      if (!ps.length) return null;
+
+      const occupied = new Set(ps.map(p => p.file));
+      const sectionParts = [];
+      for (const section of SECTIONS) {
+        const inSection = ps.filter(p => section.includes(p.file));
+        if (!inSection.length) continue; // skip sections with no pieces for this color
+        const tokens = [];
+        for (const f of section) {
+          const fp = inSection.filter(p => p.file === f);
+          if (fp.length) fp.forEach(p => tokens.push(label(p)));
+          else tokens.push(f + '-file empty');
+        }
+        sectionParts.push(tokens.join(' and '));
       }
+      return color + ' ' + sectionParts.join(', ');
     }
-    if (parts.length) speak(parts.join('. '));
+
+    const text = [narrate(myColor), narrate(oppColor)].filter(Boolean).join('. ');
+    if (text) speak(text);
   }
 
   // ── Move execution ──────────────────────────────────────────────────────────
